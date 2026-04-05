@@ -30,6 +30,8 @@ namespace FightForLife.Player
         public bool IsAlive => currentHealth > 0;
         public bool IsSubmerged { get; set; }
 
+        public bool IsInvincible { get; private set; }
+
         public event System.Action OnDeath;
         public event System.Action<float> OnHealthChanged;
         public event System.Action<float> OnStaminaChanged;
@@ -69,9 +71,14 @@ namespace FightForLife.Player
             }
         }
 
+        public void SetInvincible(bool invincible)
+        {
+            IsInvincible = invincible;
+        }
+
         public void TakeDamage(float amount)
         {
-            if (!IsAlive) return;
+            if (!IsAlive || IsInvincible) return;
 
             currentHealth = Mathf.Max(0, currentHealth - amount);
             OnHealthChanged?.Invoke(HealthPercent);

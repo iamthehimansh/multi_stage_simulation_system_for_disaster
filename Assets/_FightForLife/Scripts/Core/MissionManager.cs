@@ -1,5 +1,7 @@
 using UnityEngine;
+using System;
 using System.Collections.Generic;
+using FightForLife.Disaster;
 
 namespace FightForLife.Core
 {
@@ -12,9 +14,17 @@ namespace FightForLife.Core
 
         private List<MissionData> completedMissions = new List<MissionData>();
         private List<MissionData> failedMissions = new List<MissionData>();
+        private Dictionary<MissionData, float> activeMissionTimers = new Dictionary<MissionData, float>();
 
         public MissionData ActiveMission => activeMission;
         public List<MissionData> CompletedMissions => completedMissions;
+
+        // Events
+        public event Action<MissionData> OnMissionStarted;
+        public event Action<MissionData> OnMissionCompleted;
+        public event Action<MissionData> OnMissionFailed;
+
+        private FloodManager floodManager;
 
         private void Awake()
         {
@@ -26,17 +36,47 @@ namespace FightForLife.Core
             Instance = this;
         }
 
+        private void Start()
+        {
+            floodManager = FindAnyObjectByType<FloodManager>();
+
+            if (floodManager != null)
+                floodManager.OnPhaseChanged += OnPhaseChanged;
+        }
+
+        private void OnDestroy()
+        {
+            if (floodManager != null)
+                floodManager.OnPhaseChanged -= OnPhaseChanged;
+        }
+
+        private void Update()
+        {
+            UpdateMissionTimers();
+        }
+
+        #region Mission Lifecycle
+
         public void StartMission(MissionData mission)
         {
-            activeMission = mission;
             mission.status = MissionStatus.Active;
+            activeMission = mission;
+
+            // Start timer if mission has a time limit
+            if (mission.timeLimit > 0f)
+            {
+                activeMissionTimers[mission] = mission.timeLimit;
+            }
+
             Debug.Log($"Mission Started: {mission.missionName}");
+            OnMissionStarted?.Invoke(mission);
         }
 
         public void CompleteMission(MissionData mission)
         {
             mission.status = MissionStatus.Completed;
             completedMissions.Add(mission);
+            activeMissionTimers.Remove(mission);
 
             if (activeMission == mission)
                 activeMission = null;
@@ -45,18 +85,137 @@ namespace FightForLife.Core
                 ScoreManager.Instance.CompleteMission(mission.rewardPoints);
 
             Debug.Log($"Mission Completed: {mission.missionName} (+{mission.rewardPoints} pts)");
+            OnMissionCompleted?.Invoke(mission);
         }
 
         public void FailMission(MissionData mission)
         {
             mission.status = MissionStatus.Failed;
             failedMissions.Add(mission);
+            activeMissionTimers.Remove(mission);
 
             if (activeMission == mission)
                 activeMission = null;
 
             Debug.Log($"Mission Failed: {mission.missionName}");
+            OnMissionFailed?.Invoke(mission);
         }
+
+        #endregion
+
+        #region Queries
+
+        public List<MissionData> GetAvailableMissions()
+        {
+            List<MissionData> available = new List<MissionData>();
+            foreach (var mission in allMissions)
+            {
+                if (mission.status == MissionStatus.Available)
+                    available.Add(mission);
+            }
+            return available;
+        }
+
+        public List<MissionData> GetActiveMissions()
+        {
+            List<MissionData> active = new List<MissionData>();
+            foreach (var mission in allMissions)
+            {
+                if (mission.status == MissionStatus.Active)
+                    active.Add(mission);
+            }
+            return active;
+        }
+
+        public MissionData FindMissionById(string id)
+        {
+            foreach (var mission in allMissions)
+            {
+                if (mission.missionId == id)
+                    return mission;
+            }
+            return null;
+        }
+
+        #endregion
+
+        #region Phase-Based Activation
+
+        public void ActivateMissionsByPhase(FloodPhase phase)
+        {
+            int phaseIndex = (int)phase;
+            foreach (var mission in allMissions)
+            {
+                if (mission.disasterPhase == phaseIndex &&
+                    (mission.status == MissionStatus.Locked || mission.status == MissionStatus.Available))
+                {
+                    // Check expert-only restriction
+                    if (mission.expertOnly && GameManager.Instance != null &&
+                        GameManager.Instance.SelectedRole != PlayerRole.DisasterManagementExpert)
+                    {
+                        continue;
+                    }
+
+                    mission.status = MissionStatus.Available;
+                    Debug.Log($"Mission available: {mission.missionName} (Phase: {phase})");
+                }
+            }
+        }
+
+        private void OnPhaseChanged(FloodPhase newPhase)
+        {
+            ActivateMissionsByPhase(newPhase);
+        }
+
+        #endregion
+
+        #region Timers
+
+        private void UpdateMissionTimers()
+        {
+            if (activeMissionTimers.Count == 0) return;
+
+            // Copy keys to avoid modification during iteration
+            var missions = new List<MissionData>(activeMissionTimers.Keys);
+
+            foreach (var mission in missions)
+            {
+                if (!activeMissionTimers.ContainsKey(mission)) continue;
+
+                activeMissionTimers[mission] -= Time.deltaTime;
+
+                if (activeMissionTimers[mission] <= 0f)
+                {
+                    FailMission(mission);
+                }
+            }
+        }
+
+        public float GetMissionTimeRemaining(MissionData mission)
+        {
+            if (activeMissionTimers.TryGetValue(mission, out float remaining))
+                return remaining;
+            return -1f;
+        }
+
+        #endregion
+
+        #region Reset
+
+        public void ResetAllMissions()
+        {
+            foreach (var mission in allMissions)
+            {
+                mission.status = MissionStatus.Locked;
+            }
+
+            completedMissions.Clear();
+            failedMissions.Clear();
+            activeMissionTimers.Clear();
+            activeMission = null;
+        }
+
+        #endregion
     }
 
     [System.Serializable]
