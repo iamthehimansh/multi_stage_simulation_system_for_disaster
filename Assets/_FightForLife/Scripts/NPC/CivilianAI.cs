@@ -64,6 +64,7 @@ namespace FightForLife.NPC
 
         private NavMeshAgent agent;
         private AudioSource audioSource;
+        private Animator animator;
         private Renderer stateIndicatorRenderer;
         private Transform followTarget;
         private float timeInWater;
@@ -73,12 +74,19 @@ namespace FightForLife.NPC
         private float currentWaterDepth;
         private bool needsMedicalItem;
 
+        private static readonly int HashSpeed = Animator.StringToHash("Speed");
+        private static readonly int HashMoveZ = Animator.StringToHash("MoveZ");
+        private static readonly int HashIsGrounded = Animator.StringToHash("IsGrounded");
+
         private void Awake()
         {
             agent = GetComponent<NavMeshAgent>();
             audioSource = GetComponent<AudioSource>();
             audioSource.spatialBlend = 1f;
             audioSource.maxDistance = 30f;
+
+            animator = GetComponentInChildren<Animator>();
+            if (animator != null) animator.applyRootMotion = false;
 
             ApplyNPCTypeModifiers();
             CreateStateIndicator();
@@ -109,6 +117,7 @@ namespace FightForLife.NPC
             UpdateStateMachine();
             UpdateStateIndicatorColor();
             UpdateHelpCalls();
+            UpdateAnimation();
         }
 
         private void ApplyNPCTypeModifiers()
@@ -136,20 +145,7 @@ namespace FightForLife.NPC
 
         private void CreateStateIndicator()
         {
-            if (stateIndicator != null) return;
-
-            stateIndicator = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            stateIndicator.transform.SetParent(transform);
-            stateIndicator.transform.localPosition = Vector3.up * indicatorHeight;
-            stateIndicator.transform.localScale = Vector3.one * 0.25f;
-
-            Collider col = stateIndicator.GetComponent<Collider>();
-            if (col != null) Destroy(col);
-
-            stateIndicatorRenderer = stateIndicator.GetComponent<Renderer>();
-            stateIndicatorRenderer.material = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-            stateIndicatorRenderer.material.SetFloat("_Surface", 1); // Transparent
-            UpdateStateIndicatorColor();
+            // Disabled - no floating sphere above NPC heads
         }
 
         private void UpdateStateIndicatorColor()
@@ -420,6 +416,16 @@ namespace FightForLife.NPC
 
             OnStateChanged?.Invoke(this, newState);
             Debug.Log($"[NPC] {gameObject.name} state: {oldState} -> {newState}");
+        }
+
+        private void UpdateAnimation()
+        {
+            if (animator == null) return;
+
+            float speed = agent.enabled && !agent.isStopped ? agent.velocity.magnitude : 0f;
+            animator.SetFloat(HashSpeed, speed, 0.1f, Time.deltaTime);
+            animator.SetFloat(HashMoveZ, speed > 0.1f ? 1f : 0f, 0.1f, Time.deltaTime);
+            animator.SetBool(HashIsGrounded, true);
         }
 
         private void UpdateHelpCalls()

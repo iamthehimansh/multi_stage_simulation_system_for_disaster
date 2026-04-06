@@ -10,6 +10,7 @@ namespace FightForLife.NPC
 
         [Header("Spawning")]
         [SerializeField] private GameObject npcPrefab;
+        [SerializeField] private GameObject[] npcPrefabVariants;
         [SerializeField] private Transform[] spawnPoints;
         [SerializeField] private int totalNPCs = 20;
 
@@ -63,9 +64,17 @@ namespace FightForLife.NPC
                 Vector3 spawnPos = spawnPoint.position + offset;
 
                 GameObject npcObj;
-                if (npcPrefab != null)
+                // Pick random prefab from variants, fallback to single prefab
+                GameObject chosenPrefab = null;
+                if (npcPrefabVariants != null && npcPrefabVariants.Length > 0)
                 {
-                    npcObj = Instantiate(npcPrefab, spawnPos, Quaternion.identity, transform);
+                    chosenPrefab = npcPrefabVariants[Random.Range(0, npcPrefabVariants.Length)];
+                }
+                if (chosenPrefab == null) chosenPrefab = npcPrefab;
+
+                if (chosenPrefab != null)
+                {
+                    npcObj = Instantiate(chosenPrefab, spawnPos, Quaternion.identity, transform);
                 }
                 else
                 {

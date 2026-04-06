@@ -35,7 +35,7 @@ namespace FightForLife.UI
             var scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
 
             // Setup camera
-            var cam = Camera.main;
+            var cam = UnityEngine.Camera.main;
             if (cam != null)
             {
                 cam.backgroundColor = BG_DARK;

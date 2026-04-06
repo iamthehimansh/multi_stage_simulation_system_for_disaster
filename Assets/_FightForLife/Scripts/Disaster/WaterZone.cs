@@ -39,8 +39,8 @@ namespace FightForLife.Disaster
             }
 
             // Apply water drag
-            rb.linearDamping = waterDrag;
-            rb.angularDamping = waterAngularDrag;
+            rb.drag = waterDrag;
+            rb.angularDrag = waterAngularDrag;
         }
 
         private void OnTriggerExit(Collider other)
@@ -49,8 +49,8 @@ namespace FightForLife.Disaster
             if (rb == null) return;
 
             // Restore default drag values
-            rb.linearDamping = 0f;
-            rb.angularDamping = 0.05f;
+            rb.drag = 0f;
+            rb.angularDrag = 0.05f;
         }
 
         /// <summary>

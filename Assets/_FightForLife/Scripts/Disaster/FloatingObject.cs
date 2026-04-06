@@ -61,8 +61,8 @@ namespace FightForLife.Disaster
                 rb.AddForce(buoyancy, ForceMode.Acceleration);
 
                 // Apply water drag
-                rb.linearDamping = waterDrag;
-                rb.angularDamping = waterAngularDrag;
+                rb.drag = waterDrag;
+                rb.angularDrag = waterAngularDrag;
 
                 // Apply current from FloodManager
                 Vector2 flowDir = FloodManager.Instance.GetFlowDirection();
@@ -73,16 +73,16 @@ namespace FightForLife.Disaster
                 // Dampen vertical velocity when near surface (reduces oscillation)
                 if (Mathf.Abs(submersion) < 0.3f)
                 {
-                    Vector3 vel = rb.linearVelocity;
+                    Vector3 vel = rb.velocity;
                     vel.y *= 0.95f;
-                    rb.linearVelocity = vel;
+                    rb.velocity = vel;
                 }
             }
             else
             {
                 isInWater = false;
-                rb.linearDamping = airDrag;
-                rb.angularDamping = airAngularDrag;
+                rb.drag = airDrag;
+                rb.angularDrag = airAngularDrag;
             }
         }
 

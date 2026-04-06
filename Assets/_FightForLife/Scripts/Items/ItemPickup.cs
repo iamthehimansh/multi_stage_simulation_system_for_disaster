@@ -109,7 +109,7 @@ namespace FightForLife.Items
                 isInWater = true;
                 float forceFraction = Mathf.Clamp01(submersion / 0.5f);
                 rb.AddForce(Vector3.up * buoyancyForce * forceFraction, ForceMode.Acceleration);
-                rb.linearDamping = waterDrag;
+                rb.drag = waterDrag;
 
                 // Apply current
                 Vector2 flowDir = FloodManager.Instance.GetFlowDirection();
@@ -120,7 +120,7 @@ namespace FightForLife.Items
             else
             {
                 isInWater = false;
-                rb.linearDamping = 0.1f;
+                rb.drag = 0.1f;
             }
         }
 

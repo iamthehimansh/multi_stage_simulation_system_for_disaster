@@ -173,7 +173,7 @@ namespace FightForLife.Core
             // ==================== CAMERA ====================
             var camObj = new GameObject("Main Camera");
             camObj.tag = "MainCamera";
-            var cam = camObj.AddComponent<Camera>();
+            var cam = camObj.AddComponent<UnityEngine.Camera>();
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.3f, 0.35f, 0.45f);
             cam.fieldOfView = 60;
@@ -337,7 +337,7 @@ namespace FightForLife.Core
 
             // ==================== NAVMESH ====================
             // Mark ground as Navigation Static
-            StaticEditorFlags navFlags = StaticEditorFlags.NavigationStatic;
+            StaticEditorFlags navFlags = StaticEditorFlags.ContributeGI | StaticEditorFlags.BatchingStatic;
             GameObjectUtility.SetStaticEditorFlags(ground, navFlags);
             GameObjectUtility.SetStaticEditorFlags(hillNorth, navFlags);
             GameObjectUtility.SetStaticEditorFlags(lowSouth, navFlags);
@@ -722,7 +722,7 @@ namespace FightForLife.Core
 
             // Minimap placeholder
             var minimapBg = CreateUIRect(topRight.transform, "MinimapBG", Vector2.zero, new Vector2(180, 180));
-            minimapBg.AddComponent<Image>().color = new Color(0.1f, 0.15f, 0.2f, 0.8f);
+            minimapBg.gameObject.AddComponent<Image>().color = new Color(0.1f, 0.15f, 0.2f, 0.8f);
 
             var minimapImg = CreateUIRect(minimapBg.transform, "MinimapImage", Vector2.zero, new Vector2(170, 170));
             minimapImg.gameObject.AddComponent<RawImage>().color = new Color(0.2f, 0.3f, 0.2f);
