@@ -423,8 +423,10 @@ namespace FightForLife.NPC
             if (animator == null) return;
 
             float speed = agent.enabled && !agent.isStopped ? agent.velocity.magnitude : 0f;
-            animator.SetFloat(HashSpeed, speed, 0.1f, Time.deltaTime);
-            animator.SetFloat(HashMoveZ, speed > 0.1f ? 1f : 0f, 0.1f, Time.deltaTime);
+            // Snap to zero when barely moving to prevent idle walking animation
+            float moveZ = speed > 0.2f ? 1f : 0f;
+            animator.SetFloat(HashSpeed, speed > 0.2f ? speed : 0f, 0.05f, Time.deltaTime);
+            animator.SetFloat(HashMoveZ, moveZ, 0.05f, Time.deltaTime);
             animator.SetBool(HashIsGrounded, true);
         }
 

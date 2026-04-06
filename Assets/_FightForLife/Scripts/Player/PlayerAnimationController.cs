@@ -9,7 +9,7 @@ namespace FightForLife.Player
         [SerializeField] private Animator animator;
 
         [Header("Smoothing")]
-        [SerializeField] private float dampTime = 0.1f;
+        [SerializeField] private float dampTime = 0.05f;
 
         private static readonly int HashMoveX = Animator.StringToHash("MoveX");
         private static readonly int HashMoveZ = Animator.StringToHash("MoveZ");
@@ -40,6 +40,10 @@ namespace FightForLife.Player
 
             Vector2 input = new Vector2(inputX, inputZ);
             if (input.magnitude > 1f) input.Normalize();
+
+            // Dead zone - snap to zero when input is negligible to prevent idle walking
+            if (input.magnitude < 0.05f)
+                input = Vector2.zero;
 
             animator.SetFloat(HashMoveX, input.x, dampTime, Time.deltaTime);
             animator.SetFloat(HashMoveZ, input.y, dampTime, Time.deltaTime);
