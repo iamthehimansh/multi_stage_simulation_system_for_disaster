@@ -137,6 +137,28 @@ namespace FightForLife.Core
             return null;
         }
 
+        public void UpdateObjective(string missionId, string objectiveId, int increment = 1)
+        {
+            var mission = FindMissionById(missionId);
+            if (mission == null || mission.status != MissionStatus.Active) return;
+
+            foreach (var obj in mission.objectives)
+            {
+                if (obj.objectiveId == objectiveId)
+                {
+                    obj.currentCount = Mathf.Min(obj.currentCount + increment, obj.requiredCount);
+                    Debug.Log($"[Mission] {mission.missionName}: {obj.description} ({obj.currentCount}/{obj.requiredCount})");
+
+                    if (!mission.parallelObjectives && obj.isComplete)
+                        mission.currentObjectiveIndex++;
+
+                    if (mission.AllObjectivesComplete())
+                        CompleteMission(mission);
+                    break;
+                }
+            }
+        }
+
         #endregion
 
         #region Phase-Based Activation
@@ -230,6 +252,47 @@ namespace FightForLife.Core
         public float timeLimit;
         public int disasterPhase;
         public bool expertOnly;
+
+        // Objective tracking
+        public List<ObjectiveData> objectives = new List<ObjectiveData>();
+        public bool parallelObjectives = true;
+        public int currentObjectiveIndex;
+
+        // Waypoint for HUD marker
+        public Vector3 waypointPosition;
+        public string waypointLabel;
+
+        public ObjectiveData GetActiveObjective()
+        {
+            if (objectives.Count == 0) return null;
+            if (parallelObjectives)
+            {
+                foreach (var obj in objectives)
+                    if (!obj.isComplete) return obj;
+                return null;
+            }
+            if (currentObjectiveIndex < objectives.Count)
+                return objectives[currentObjectiveIndex];
+            return null;
+        }
+
+        public bool AllObjectivesComplete()
+        {
+            if (objectives.Count == 0) return false;
+            foreach (var obj in objectives)
+                if (!obj.isComplete) return false;
+            return true;
+        }
+    }
+
+    [System.Serializable]
+    public class ObjectiveData
+    {
+        public string objectiveId;
+        public string description;
+        public int requiredCount = 1;
+        public int currentCount;
+        public bool isComplete => currentCount >= requiredCount;
     }
 
     public enum MissionType

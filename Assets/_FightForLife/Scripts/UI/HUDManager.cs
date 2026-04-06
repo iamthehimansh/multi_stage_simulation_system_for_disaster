@@ -283,7 +283,36 @@ namespace FightForLife.UI
                 if (missionNameText != null)
                     missionNameText.text = active.missionName;
                 if (missionDescriptionText != null)
-                    missionDescriptionText.text = active.description;
+                {
+                    var obj = active.GetActiveObjective();
+                    if (obj != null && obj.requiredCount > 1)
+                        missionDescriptionText.text = $"{obj.description} ({obj.currentCount}/{obj.requiredCount})";
+                    else if (obj != null)
+                        missionDescriptionText.text = obj.description;
+                    else
+                        missionDescriptionText.text = active.description;
+                }
+            }
+
+            // Show all active missions if multiple are running
+            var allActive = missionManager.GetActiveMissions();
+            if (allActive.Count > 1 && missionManager.ActiveMission == null)
+            {
+                // Set first active as the displayed one
+                foreach (var m in allActive)
+                {
+                    if (m.status == MissionStatus.Active)
+                    {
+                        if (missionNameText != null)
+                            missionNameText.text = $"{m.missionName} (+{allActive.Count - 1} more)";
+                        var o = m.GetActiveObjective();
+                        if (missionDescriptionText != null && o != null)
+                            missionDescriptionText.text = o.requiredCount > 1
+                                ? $"{o.description} ({o.currentCount}/{o.requiredCount})"
+                                : o.description;
+                        break;
+                    }
+                }
             }
         }
 
