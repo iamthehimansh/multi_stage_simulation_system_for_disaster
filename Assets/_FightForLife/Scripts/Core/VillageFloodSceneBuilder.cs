@@ -834,7 +834,7 @@ namespace FightForLife.Core
             hudSO.ApplyModifiedProperties();
 
             // Add pause menu
-            canvasObj.AddComponent<UI.PauseMenuUI>();
+            canvasObj.AddComponent<UI.PauseMenu>();
         }
 
         static void SetProp(SerializedObject so, string propName, Object value)
