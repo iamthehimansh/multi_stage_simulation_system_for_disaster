@@ -1,6 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
-using UnityEngine.Rendering.Universal;
+
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
@@ -474,10 +474,6 @@ namespace FightForLife.UI
 
             var camGO = new GameObject("MinimapCamera");
             minimapCamera = camGO.AddComponent<UnityEngine.Camera>();
-
-            // Configure for URP
-            var urpCamData = minimapCamera.GetUniversalAdditionalCameraData();
-            urpCamData.renderType = CameraRenderType.Base;
 
             minimapCamera.orthographic = true;
             minimapCamera.orthographicSize = MINIMAP_CAM_ORTHO;

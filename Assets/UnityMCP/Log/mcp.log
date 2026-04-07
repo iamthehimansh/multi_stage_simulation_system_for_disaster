@@ -68,3 +68,8 @@
 {"ts":"2026-04-07T10:27:50.761Z","tool":"get_tool_states","type":"resource","status":"SUCCESS","ms":1,"params":{}}
 {"ts":"2026-04-07T10:27:58.280Z","tool":"execute_code","type":"tool","status":"SUCCESS","ms":678,"action":"execute","params":{"action":"execute","code":"\nUnityEditor.SceneManagement.EditorSceneManager.SaveOpenScenes();\nreturn \"Saved\";\n","safety_checks":true,"compiler":"auto"}}
 {"ts":"2026-04-07T10:27:58.317Z","tool":"get_tool_states","type":"resource","status":"SUCCESS","ms":1,"params":{}}
+{"ts":"2026-04-07T10:38:28.795Z","tool":"execute_code","type":"tool","status":"SUCCESS","ms":775,"action":"execute","params":{"action":"execute","code":"\nAssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);\nreturn \"Refreshed\";\n","safety_checks":true,"compiler":"auto"}}
+{"ts":"2026-04-07T10:38:29.196Z","tool":"get_tool_states","type":"resource","status":"SUCCESS","ms":0,"params":{}}
+{"ts":"2026-04-07T10:38:47.598Z","tool":"execute_code","type":"tool","status":"SUCCESS","ms":2768,"action":"execute","params":{"action":"execute","code":"\nvar ms = AssetDatabase.LoadAssetAtPath<MonoScript>(\"Assets/_FightForLife/Scripts/UI/GameHUD.cs\");\nreturn $\"GameHUD: {(ms != null && ms.GetClass() != null ? \"OK\" : \"BROKEN\")}\";\n","safety_checks":true,"compiler":"auto"}}
+{"ts":"2026-04-07T10:38:55.150Z","event":"session_start","unity":"2022.3.62f3"}
+{"ts":"2026-04-07T10:38:55.147Z","tool":"get_tool_states","type":"resource","status":"SUCCESS","ms":2,"params":{}}
