@@ -336,7 +336,7 @@ namespace FightForLife.UI
                 new Vector2(barX, 0f), new Vector2(BAR_WIDTH, BAR_HEIGHT), bgColor);
             AddRoundedCorners(barBg, 4f);
 
-            // Bar fill
+            // Bar fill - uses anchorMax.x to control width (no sprite needed)
             var fill = CreateImage(name + "Fill", barBg.rectTransform,
                 Vector2.zero, Vector2.zero,
                 Vector2.zero, Vector2.zero, fillColor);
@@ -344,10 +344,6 @@ namespace FightForLife.UI
             fill.rectTransform.anchorMax = new Vector2(1f, 1f);
             fill.rectTransform.offsetMin = Vector2.zero;
             fill.rectTransform.offsetMax = Vector2.zero;
-            fill.type = Image.Type.Filled;
-            fill.fillMethod = Image.FillMethod.Horizontal;
-            fill.fillOrigin = 0;
-            fill.fillAmount = 1f;
             fillImage = fill;
 
             // Value text (right side)
@@ -373,11 +369,6 @@ namespace FightForLife.UI
             trail.rectTransform.anchorMax = new Vector2(1f, 1f);
             trail.rectTransform.offsetMin = Vector2.zero;
             trail.rectTransform.offsetMax = Vector2.zero;
-            trail.type = Image.Type.Filled;
-            trail.fillMethod = Image.FillMethod.Horizontal;
-            trail.fillOrigin = 0;
-            trail.fillAmount = 1f;
-
             // Make sure trail renders behind fill
             trail.rectTransform.SetAsFirstSibling();
 
@@ -477,13 +468,14 @@ namespace FightForLife.UI
 
             minimapCamera.orthographic = true;
             minimapCamera.orthographicSize = MINIMAP_CAM_ORTHO;
-            minimapCamera.clearFlags = CameraClearFlags.SolidColor;
-            minimapCamera.backgroundColor = new Color(0.1f, 0.15f, 0.2f, 1f);
-            minimapCamera.cullingMask = ~0; // Render everything; adjust layers as needed
+            minimapCamera.clearFlags = CameraClearFlags.Skybox;
+            minimapCamera.backgroundColor = new Color(0.15f, 0.25f, 0.15f, 1f);
             minimapCamera.targetTexture = minimapRT;
             minimapCamera.depth = -10;
-            minimapCamera.farClipPlane = 200f;
+            minimapCamera.farClipPlane = 500f;
             minimapCamera.nearClipPlane = 0.3f;
+            minimapCamera.allowHDR = false;
+            minimapCamera.allowMSAA = false;
 
             // Position above player looking down
             camGO.transform.position = playerTransform.position + Vector3.up * MINIMAP_CAM_HEIGHT;
@@ -754,7 +746,7 @@ namespace FightForLife.UI
         private void UpdateHealthBar(float percent)
         {
             if (healthBarFill != null)
-                healthBarFill.fillAmount = percent;
+                healthBarFill.rectTransform.anchorMax = new Vector2(Mathf.Clamp01(percent), 1f);
             if (healthText != null && playerHealth != null)
                 healthText.text = $"{Mathf.CeilToInt(playerHealth.Health)}/{Mathf.CeilToInt(playerHealth.MaxHealth)}";
         }
@@ -764,13 +756,13 @@ namespace FightForLife.UI
             if (healthBarSmooth == null) return;
             currentSmoothHealth = Mathf.Lerp(currentSmoothHealth, smoothHealthTarget,
                 Time.deltaTime * HEALTH_SMOOTH_SPEED);
-            healthBarSmooth.fillAmount = currentSmoothHealth;
+            healthBarSmooth.rectTransform.anchorMax = new Vector2(Mathf.Clamp01(currentSmoothHealth), 1f);
         }
 
         private void UpdateStaminaBar(float percent)
         {
             if (staminaBarFill != null)
-                staminaBarFill.fillAmount = percent;
+                staminaBarFill.rectTransform.anchorMax = new Vector2(Mathf.Clamp01(percent), 1f);
             if (staminaText != null && playerHealth != null)
                 staminaText.text = $"{Mathf.CeilToInt(playerHealth.Stamina)}/{Mathf.CeilToInt(playerHealth.MaxStamina)}";
         }
@@ -778,7 +770,7 @@ namespace FightForLife.UI
         private void UpdateOxygenBar(float percent)
         {
             if (oxygenBarFill != null)
-                oxygenBarFill.fillAmount = percent;
+                oxygenBarFill.rectTransform.anchorMax = new Vector2(Mathf.Clamp01(percent), 1f);
             if (oxygenText != null && playerHealth != null)
                 oxygenText.text = $"{Mathf.CeilToInt(playerHealth.Oxygen)}/{Mathf.CeilToInt(playerHealth.MaxOxygen)}";
         }
