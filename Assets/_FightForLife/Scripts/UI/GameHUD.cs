@@ -82,10 +82,11 @@ namespace FightForLife.UI
         private TextMeshProUGUI missionObjectiveText;
         private TextMeshProUGUI missionTimerText;
 
-        // Minimap
+        // Minimap (procedural - no camera)
         private RawImage minimapImage;
-        private UnityEngine.Camera minimapCamera;
-        private RenderTexture minimapRT;
+        private Texture2D minimapTex;
+        private Image playerArrow;
+        private Color[] minimapClearPixels;
 
         // Compass
         private RectTransform compassContainer;
@@ -124,6 +125,20 @@ namespace FightForLife.UI
         private float smoothHealthTarget;
         private float currentSmoothHealth;
         private bool isInitialized;
+        private static Sprite whiteSprite;
+
+        /// <summary>Creates a 1x1 white sprite at runtime. Required for Image.Type.Filled to work.</summary>
+        private static Sprite GetWhiteSprite()
+        {
+            if (whiteSprite != null) return whiteSprite;
+            var tex = new Texture2D(4, 4);
+            var pixels = new Color[16];
+            for (int i = 0; i < 16; i++) pixels[i] = Color.white;
+            tex.SetPixels(pixels);
+            tex.Apply();
+            whiteSprite = Sprite.Create(tex, new Rect(0, 0, 4, 4), new Vector2(0.5f, 0.5f), 100f);
+            return whiteSprite;
+        }
 
         // ════════════════════════════ LIFECYCLE ═════════════════════════════
 
@@ -171,13 +186,8 @@ namespace FightForLife.UI
         {
             UnsubscribeEvents();
 
-            if (minimapRT != null)
-            {
-                minimapRT.Release();
-                Destroy(minimapRT);
-            }
-            if (minimapCamera != null)
-                Destroy(minimapCamera.gameObject);
+            if (minimapTex != null)
+                Destroy(minimapTex);
         }
 
         // ════════════════════════════ SETUP ═════════════════════════════════
@@ -336,7 +346,7 @@ namespace FightForLife.UI
                 new Vector2(barX, 0f), new Vector2(BAR_WIDTH, BAR_HEIGHT), bgColor);
             AddRoundedCorners(barBg, 4f);
 
-            // Bar fill - uses anchorMax.x to control width (no sprite needed)
+            // Bar fill - uses sprite + fillAmount (fillAmount requires a sprite to work)
             var fill = CreateImage(name + "Fill", barBg.rectTransform,
                 Vector2.zero, Vector2.zero,
                 Vector2.zero, Vector2.zero, fillColor);
@@ -344,6 +354,11 @@ namespace FightForLife.UI
             fill.rectTransform.anchorMax = new Vector2(1f, 1f);
             fill.rectTransform.offsetMin = Vector2.zero;
             fill.rectTransform.offsetMax = Vector2.zero;
+            fill.sprite = GetWhiteSprite();
+            fill.type = Image.Type.Filled;
+            fill.fillMethod = Image.FillMethod.Horizontal;
+            fill.fillOrigin = (int)Image.OriginHorizontal.Left;
+            fill.fillAmount = 1f;
             fillImage = fill;
 
             // Value text (right side)
@@ -369,6 +384,11 @@ namespace FightForLife.UI
             trail.rectTransform.anchorMax = new Vector2(1f, 1f);
             trail.rectTransform.offsetMin = Vector2.zero;
             trail.rectTransform.offsetMax = Vector2.zero;
+            trail.sprite = GetWhiteSprite();
+            trail.type = Image.Type.Filled;
+            trail.fillMethod = Image.FillMethod.Horizontal;
+            trail.fillOrigin = (int)Image.OriginHorizontal.Left;
+            trail.fillAmount = 1f;
             // Make sure trail renders behind fill
             trail.rectTransform.SetAsFirstSibling();
 
@@ -423,6 +443,7 @@ namespace FightForLife.UI
         private void CreateMinimap()
         {
             float margin = 20f;
+            int texSize = MINIMAP_TEX_RES;
 
             // Border frame
             var border = CreatePanel("MinimapBorder", canvas.transform,
@@ -436,9 +457,9 @@ namespace FightForLife.UI
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                 Vector2.zero,
                 new Vector2(MINIMAP_SIZE, MINIMAP_SIZE),
-                Color.black, 2f);
+                new Color(0.12f, 0.18f, 0.12f), 2f);
 
-            // RawImage for render texture
+            // RawImage for procedural texture
             var mmGO = new GameObject("MinimapImage");
             mmGO.transform.SetParent(inner, false);
             minimapImage = mmGO.AddComponent<RawImage>();
@@ -448,43 +469,64 @@ namespace FightForLife.UI
             mmRect.offsetMin = Vector2.zero;
             mmRect.offsetMax = Vector2.zero;
 
-            // Create render texture
-            minimapRT = new RenderTexture(MINIMAP_TEX_RES, MINIMAP_TEX_RES, 16, RenderTextureFormat.ARGB32);
-            minimapRT.Create();
-            minimapImage.texture = minimapRT;
+            // Create procedural texture
+            minimapTex = new Texture2D(texSize, texSize, TextureFormat.RGBA32, false);
+            minimapTex.filterMode = FilterMode.Point;
+            minimapImage.texture = minimapTex;
 
-            // Player indicator dot in center of minimap
-            var playerDot = CreateImage("PlayerDot", inner,
+            // Pre-fill with base terrain colors by sampling terrain heights
+            var terrain = Terrain.activeTerrain;
+            minimapClearPixels = new Color[texSize * texSize];
+
+            if (terrain != null)
+            {
+                for (int y = 0; y < texSize; y++)
+                {
+                    for (int x = 0; x < texSize; x++)
+                    {
+                        // Map pixel to world position (centered on village area)
+                        float worldX = -375f + (x - texSize / 2f) * (MINIMAP_CAM_ORTHO * 2f / texSize);
+                        float worldZ = 625f + (y - texSize / 2f) * (MINIMAP_CAM_ORTHO * 2f / texSize);
+                        float h = terrain.SampleHeight(new Vector3(worldX, 0, worldZ));
+
+                        Color c;
+                        if (h < 2f) c = new Color(0.15f, 0.25f, 0.4f); // Water/deep
+                        else if (h < 8f) c = new Color(0.7f, 0.65f, 0.5f); // Sand
+                        else if (h < 25f) c = new Color(0.25f, 0.4f, 0.2f); // Grass
+                        else if (h < 60f) c = new Color(0.2f, 0.35f, 0.18f); // Hills
+                        else c = new Color(0.35f, 0.3f, 0.25f); // Mountains
+
+                        minimapClearPixels[y * texSize + x] = c;
+                    }
+                }
+            }
+            else
+            {
+                Color bg = new Color(0.2f, 0.3f, 0.15f);
+                for (int i = 0; i < minimapClearPixels.Length; i++)
+                    minimapClearPixels[i] = bg;
+            }
+
+            // Player arrow in center
+            playerArrow = CreateImage("PlayerArrow", inner,
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                Vector2.zero, new Vector2(8f, 8f), COL_HEALTH);
+                Vector2.zero, new Vector2(10f, 14f), Color.white);
+            playerArrow.sprite = GetWhiteSprite();
+
+            // N/S/E/W labels on minimap edges
+            CreateTMP("MM_N", inner, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                new Vector2(0, -4f), new Vector2(20, 14), "N", 10f, Color.white, TextAlignmentOptions.Center);
+            CreateTMP("MM_S", inner, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
+                new Vector2(0, 4f), new Vector2(20, 14), "S", 10f, Color.white, TextAlignmentOptions.Center);
+            CreateTMP("MM_E", inner, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f),
+                new Vector2(-4f, 0), new Vector2(20, 14), "E", 10f, Color.white, TextAlignmentOptions.Center);
+            CreateTMP("MM_W", inner, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
+                new Vector2(4f, 0), new Vector2(20, 14), "W", 10f, Color.white, TextAlignmentOptions.Center);
         }
 
         private void SetupMinimapCamera()
         {
-            if (playerTransform == null) return;
-
-            var camGO = new GameObject("MinimapCamera");
-            minimapCamera = camGO.AddComponent<UnityEngine.Camera>();
-
-            minimapCamera.orthographic = true;
-            minimapCamera.orthographicSize = MINIMAP_CAM_ORTHO;
-            minimapCamera.clearFlags = CameraClearFlags.Skybox;
-            minimapCamera.backgroundColor = new Color(0.15f, 0.25f, 0.15f, 1f);
-            minimapCamera.targetTexture = minimapRT;
-            minimapCamera.depth = -10;
-            minimapCamera.farClipPlane = 500f;
-            minimapCamera.nearClipPlane = 0.3f;
-            minimapCamera.allowHDR = false;
-            minimapCamera.allowMSAA = false;
-
-            // Position above player looking down
-            camGO.transform.position = playerTransform.position + Vector3.up * MINIMAP_CAM_HEIGHT;
-            camGO.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
-
-            // Ensure the minimap camera does not render UI
-            int uiLayer = LayerMask.NameToLayer("UI");
-            if (uiLayer >= 0)
-                minimapCamera.cullingMask &= ~(1 << uiLayer);
+            // No camera needed - using procedural texture minimap
         }
 
         // ─────────────────── COMPASS (top-center) ──────────────────────────
@@ -746,7 +788,7 @@ namespace FightForLife.UI
         private void UpdateHealthBar(float percent)
         {
             if (healthBarFill != null)
-                healthBarFill.rectTransform.anchorMax = new Vector2(Mathf.Clamp01(percent), 1f);
+                healthBarFill.fillAmount = Mathf.Clamp01(percent);
             if (healthText != null && playerHealth != null)
                 healthText.text = $"{Mathf.CeilToInt(playerHealth.Health)}/{Mathf.CeilToInt(playerHealth.MaxHealth)}";
         }
@@ -756,13 +798,13 @@ namespace FightForLife.UI
             if (healthBarSmooth == null) return;
             currentSmoothHealth = Mathf.Lerp(currentSmoothHealth, smoothHealthTarget,
                 Time.deltaTime * HEALTH_SMOOTH_SPEED);
-            healthBarSmooth.rectTransform.anchorMax = new Vector2(Mathf.Clamp01(currentSmoothHealth), 1f);
+            healthBarSmooth.fillAmount = Mathf.Clamp01(currentSmoothHealth);
         }
 
         private void UpdateStaminaBar(float percent)
         {
             if (staminaBarFill != null)
-                staminaBarFill.rectTransform.anchorMax = new Vector2(Mathf.Clamp01(percent), 1f);
+                staminaBarFill.fillAmount = Mathf.Clamp01(percent);
             if (staminaText != null && playerHealth != null)
                 staminaText.text = $"{Mathf.CeilToInt(playerHealth.Stamina)}/{Mathf.CeilToInt(playerHealth.MaxStamina)}";
         }
@@ -770,7 +812,7 @@ namespace FightForLife.UI
         private void UpdateOxygenBar(float percent)
         {
             if (oxygenBarFill != null)
-                oxygenBarFill.rectTransform.anchorMax = new Vector2(Mathf.Clamp01(percent), 1f);
+                oxygenBarFill.fillAmount = Mathf.Clamp01(percent);
             if (oxygenText != null && playerHealth != null)
                 oxygenText.text = $"{Mathf.CeilToInt(playerHealth.Oxygen)}/{Mathf.CeilToInt(playerHealth.MaxOxygen)}";
         }
@@ -986,15 +1028,67 @@ namespace FightForLife.UI
             }
         }
 
-        // --- Minimap ---
+        // --- Minimap (procedural) ---
 
+        private int minimapFrameCounter;
         private void UpdateMinimap()
         {
-            if (minimapCamera == null || playerTransform == null) return;
+            if (minimapTex == null || playerTransform == null) return;
 
-            minimapCamera.transform.position = playerTransform.position + Vector3.up * MINIMAP_CAM_HEIGHT;
-            // Keep rotation looking straight down, with north up
-            minimapCamera.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+            // Only redraw every 3 frames for performance
+            minimapFrameCounter++;
+            if (minimapFrameCounter % 3 != 0) return;
+
+            int size = MINIMAP_TEX_RES;
+            minimapTex.SetPixels(minimapClearPixels);
+
+            float playerX = playerTransform.position.x;
+            float playerZ = playerTransform.position.z;
+            float viewRange = MINIMAP_CAM_ORTHO * 2f;
+
+            // Draw NPCs as colored dots
+            if (npcSpawner != null)
+            {
+                var npcs = npcSpawner.GetAllNPCs();
+                if (npcs != null)
+                {
+                    foreach (var npc in npcs)
+                    {
+                        if (npc == null) continue;
+                        float dx = npc.transform.position.x - (-375f);
+                        float dz = npc.transform.position.z - 625f;
+                        int px = Mathf.Clamp(Mathf.RoundToInt((dx / viewRange + 0.5f) * size), 1, size - 2);
+                        int py = Mathf.Clamp(Mathf.RoundToInt((dz / viewRange + 0.5f) * size), 1, size - 2);
+
+                        Color dotColor = Color.green;
+                        var state = npc.CurrentState;
+                        if (state == FightForLife.NPC.NPCState.Panicking || state == FightForLife.NPC.NPCState.Alert)
+                            dotColor = Color.yellow;
+                        else if (state == FightForLife.NPC.NPCState.Struggling || state == FightForLife.NPC.NPCState.Drowning || state == FightForLife.NPC.NPCState.Trapped)
+                            dotColor = Color.red;
+
+                        // Draw 3x3 dot
+                        for (int ox = -1; ox <= 1; ox++)
+                            for (int oy = -1; oy <= 1; oy++)
+                                minimapTex.SetPixel(px + ox, py + oy, dotColor);
+                    }
+                }
+            }
+
+            // Draw player as white cross in center
+            int cx = Mathf.Clamp(Mathf.RoundToInt(((playerX - (-375f)) / viewRange + 0.5f) * size), 2, size - 3);
+            int cy = Mathf.Clamp(Mathf.RoundToInt(((playerZ - 625f) / viewRange + 0.5f) * size), 2, size - 3);
+            for (int i = -2; i <= 2; i++)
+            {
+                minimapTex.SetPixel(cx + i, cy, Color.white);
+                minimapTex.SetPixel(cx, cy + i, Color.white);
+            }
+
+            minimapTex.Apply();
+
+            // Rotate player arrow to match camera yaw
+            if (playerArrow != null && thirdPersonCam != null)
+                playerArrow.rectTransform.localRotation = Quaternion.Euler(0, 0, -thirdPersonCam.Yaw);
         }
 
         // ═══════════════════════ EVENT HANDLERS ════════════════════════════
