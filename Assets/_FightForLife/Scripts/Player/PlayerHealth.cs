@@ -39,7 +39,7 @@ namespace FightForLife.Player
 
         private float lastStaminaUseTime;
 
-        private void Start()
+        private void Awake()
         {
             currentHealth = maxHealth;
             currentStamina = maxStamina;

@@ -5,6 +5,7 @@ using FightForLife.Disaster;
 
 namespace FightForLife.Core
 {
+    [DefaultExecutionOrder(-80)]
     public class MissionManager : MonoBehaviour
     {
         public static MissionManager Instance { get; private set; }

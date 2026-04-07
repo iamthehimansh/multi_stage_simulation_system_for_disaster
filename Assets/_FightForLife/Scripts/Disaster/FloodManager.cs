@@ -2,6 +2,7 @@ using UnityEngine;
 
 namespace FightForLife.Disaster
 {
+    [DefaultExecutionOrder(-90)]
     public class FloodManager : MonoBehaviour
     {
         public static FloodManager Instance { get; private set; }

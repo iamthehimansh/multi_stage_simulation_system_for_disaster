@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.Rendering.Universal;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
@@ -14,6 +15,7 @@ namespace FightForLife.UI
     /// Complete self-contained HUD that programmatically creates all UI elements.
     /// Attach to an empty GameObject in the scene — no prefabs or manual setup required.
     /// </summary>
+    [DefaultExecutionOrder(100)]
     public class GameHUD : MonoBehaviour
     {
         // ══════════════════════════════ COLORS ══════════════════════════════
@@ -58,6 +60,7 @@ namespace FightForLife.UI
         private ScoreManager scoreManager;
         private NPCSpawner npcSpawner;
         private Transform playerTransform;
+        private FightForLife.Camera.ThirdPersonCamera thirdPersonCam;
 
         // ══════════════════════════════ UI ELEMENTS ═════════════════════════
         private Canvas canvas;
@@ -134,7 +137,18 @@ namespace FightForLife.UI
         {
             FindReferences();
             SubscribeEvents();
+            StartCoroutine(DelayedRefresh());
             isInitialized = true;
+        }
+
+        private System.Collections.IEnumerator DelayedRefresh()
+        {
+            yield return null;
+            if (playerHealth != null)
+            {
+                UpdateHealthBar(playerHealth.HealthPercent);
+                UpdateStaminaBar(playerHealth.StaminaPercent);
+            }
         }
 
         private void Update()
@@ -177,6 +191,7 @@ namespace FightForLife.UI
             missionManager    = MissionManager.Instance ?? FindAnyObjectByType<MissionManager>();
             scoreManager      = ScoreManager.Instance ?? FindAnyObjectByType<ScoreManager>();
             npcSpawner        = NPCSpawner.Instance ?? FindAnyObjectByType<NPCSpawner>();
+            thirdPersonCam    = FindAnyObjectByType<FightForLife.Camera.ThirdPersonCamera>();
 
             if (playerHealth != null)
             {
@@ -459,6 +474,11 @@ namespace FightForLife.UI
 
             var camGO = new GameObject("MinimapCamera");
             minimapCamera = camGO.AddComponent<UnityEngine.Camera>();
+
+            // Configure for URP
+            var urpCamData = minimapCamera.GetUniversalAdditionalCameraData();
+            urpCamData.renderType = CameraRenderType.Base;
+
             minimapCamera.orthographic = true;
             minimapCamera.orthographicSize = MINIMAP_CAM_ORTHO;
             minimapCamera.clearFlags = CameraClearFlags.SolidColor;
@@ -466,13 +486,17 @@ namespace FightForLife.UI
             minimapCamera.cullingMask = ~0; // Render everything; adjust layers as needed
             minimapCamera.targetTexture = minimapRT;
             minimapCamera.depth = -10;
+            minimapCamera.farClipPlane = 200f;
+            minimapCamera.nearClipPlane = 0.3f;
 
             // Position above player looking down
             camGO.transform.position = playerTransform.position + Vector3.up * MINIMAP_CAM_HEIGHT;
             camGO.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
 
             // Ensure the minimap camera does not render UI
-            minimapCamera.cullingMask &= ~(1 << LayerMask.NameToLayer("UI"));
+            int uiLayer = LayerMask.NameToLayer("UI");
+            if (uiLayer >= 0)
+                minimapCamera.cullingMask &= ~(1 << uiLayer);
         }
 
         // ─────────────────── COMPASS (top-center) ──────────────────────────
@@ -937,9 +961,15 @@ namespace FightForLife.UI
 
         private void UpdateCompass()
         {
-            if (compassStrip == null || playerTransform == null) return;
+            if (compassStrip == null) return;
 
-            float yRot = playerTransform.eulerAngles.y;
+            float yaw = 0f;
+            if (thirdPersonCam != null)
+                yaw = thirdPersonCam.Yaw;
+            else if (playerTransform != null)
+                yaw = playerTransform.eulerAngles.y;
+
+            float yRot = yaw;
             // Map rotation to strip offset: 0 degrees = N centered
             float stripW = COMPASS_WIDTH * 4f;
             float offset = -(yRot / 360f) * stripW;

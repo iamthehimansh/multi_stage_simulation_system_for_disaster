@@ -2,6 +2,7 @@ using UnityEngine;
 
 namespace FightForLife.Core
 {
+    [DefaultExecutionOrder(-80)]
     public class ScoreManager : MonoBehaviour
     {
         public static ScoreManager Instance { get; private set; }

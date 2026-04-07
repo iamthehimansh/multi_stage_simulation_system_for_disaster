@@ -4,6 +4,7 @@ using FightForLife.Core;
 
 namespace FightForLife.NPC
 {
+    [DefaultExecutionOrder(-10)]
     public class NPCSpawner : MonoBehaviour
     {
         public static NPCSpawner Instance { get; private set; }

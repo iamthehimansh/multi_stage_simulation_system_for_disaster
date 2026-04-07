@@ -97,6 +97,9 @@ namespace FightForLife.Camera
             Yaw = angles.y;
             Pitch = angles.x;
             if (Pitch > 180f) Pitch -= 360f;
+
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
         }
 
         private void LateUpdate()

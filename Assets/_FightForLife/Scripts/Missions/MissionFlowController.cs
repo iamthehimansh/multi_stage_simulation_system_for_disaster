@@ -10,6 +10,7 @@ namespace FightForLife.Missions
     /// Orchestrates mission flow across flood phases.
     /// Creates all MissionData, wires phase transitions, and handles mission chaining.
     /// </summary>
+    [DefaultExecutionOrder(-50)]
     public class MissionFlowController : MonoBehaviour
     {
         public static MissionFlowController Instance { get; private set; }
@@ -29,10 +30,20 @@ namespace FightForLife.Missions
 
         private void Start()
         {
+            StartCoroutine(InitializeWhenReady());
+        }
+
+        private System.Collections.IEnumerator InitializeWhenReady()
+        {
+            while (MissionManager.Instance == null)
+                yield return null;
+            yield return null; // Extra frame for GameManager.InitializeGame
+            yield return null;
+
             mm = MissionManager.Instance;
             fm = FloodManager.Instance;
 
-            if (mm == null) { Debug.LogError("[MissionFlow] No MissionManager!"); return; }
+            if (mm == null) { Debug.LogError("[MissionFlow] No MissionManager!"); yield break; }
 
             CreateAllMissions();
 
@@ -42,7 +53,6 @@ namespace FightForLife.Missions
             mm.OnMissionCompleted += OnMissionCompleted;
             mm.OnMissionFailed += OnMissionFailed;
 
-            // Start first mission immediately
             var vm01 = mm.FindMissionById("VM01");
             if (vm01 != null)
             {
