@@ -18,6 +18,49 @@ namespace FightForLife.UI
     [DefaultExecutionOrder(100)]
     public class GameHUD : MonoBehaviour
     {
+        /// <summary>
+        /// Runtime bootstrap: removes the legacy GameHUD_Canvas/HUDManager built by
+        /// VillageFloodSceneBuilder and installs this GameHUD on a fresh GameObject.
+        /// Runs automatically on every scene load — no manual setup required.
+        /// </summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        private static void Bootstrap()
+        {
+            BootstrapForActiveScene();
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded += (scene, mode) => BootstrapForActiveScene();
+        }
+
+        private static void BootstrapForActiveScene()
+        {
+            var sceneName = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            // Skip non-gameplay scenes
+            if (sceneName == null) return;
+            string lower = sceneName.ToLowerInvariant();
+            if (lower.Contains("menu") || lower.Contains("credits") || lower.Contains("settings"))
+            {
+                // Also clean up any GameHUD that snuck in
+                var existing = Object.FindAnyObjectByType<GameHUD>();
+                if (existing != null) Object.Destroy(existing.gameObject);
+                return;
+            }
+
+            // Remove legacy HUD canvas if present
+            var legacy = GameObject.Find("GameHUD_Canvas");
+            if (legacy != null) Object.Destroy(legacy);
+
+            // If a GameHUD already exists in the scene, force-enable it (it ships disabled).
+            var existingHud = Object.FindAnyObjectByType<GameHUD>(FindObjectsInactive.Include);
+            if (existingHud != null)
+            {
+                existingHud.gameObject.SetActive(true);
+                existingHud.enabled = true;
+                return;
+            }
+
+            var go = new GameObject("GameHUD");
+            go.AddComponent<GameHUD>();
+        }
+
         // ══════════════════════════════ COLORS ══════════════════════════════
         private static readonly Color COL_HEALTH      = new Color(1f, 0.267f, 0.267f);       // #FF4444
         private static readonly Color COL_HEALTH_BG   = new Color(0.4f, 0.1f, 0.1f);
@@ -87,6 +130,8 @@ namespace FightForLife.UI
         private Texture2D minimapTex;
         private Image playerArrow;
         private Color[] minimapClearPixels;
+        private RectTransform minimapBorder;
+        private bool minimapMaximized;
 
         // Compass
         private RectTransform compassContainer;
@@ -180,6 +225,65 @@ namespace FightForLife.UI
             UpdateLowHealthWarning();
             UpdateCompass();
             UpdateMinimap();
+            UpdateMinimapToggle();
+        }
+
+        // Toggle minimap maximize on M
+        private void UpdateMinimapToggle()
+        {
+            if (Input.GetKeyDown(KeyCode.M))
+            {
+                minimapMaximized = !minimapMaximized;
+                ApplyMinimapSize();
+            }
+        }
+
+        private void ApplyMinimapSize()
+        {
+            if (minimapBorder == null) return;
+            if (minimapMaximized)
+            {
+                // Center large overlay
+                minimapBorder.anchorMin = new Vector2(0.5f, 0.5f);
+                minimapBorder.anchorMax = new Vector2(0.5f, 0.5f);
+                minimapBorder.pivot = new Vector2(0.5f, 0.5f);
+                minimapBorder.anchoredPosition = Vector2.zero;
+                minimapBorder.sizeDelta = new Vector2(700f, 700f);
+            }
+            else
+            {
+                // Bottom-right small
+                minimapBorder.anchorMin = new Vector2(1f, 0f);
+                minimapBorder.anchorMax = new Vector2(1f, 0f);
+                minimapBorder.pivot = new Vector2(1f, 0f);
+                minimapBorder.anchoredPosition = new Vector2(-20f, 20f);
+                minimapBorder.sizeDelta = new Vector2(MINIMAP_SIZE + 6f, MINIMAP_SIZE + 6f);
+            }
+        }
+
+        // Bresenham-style dashed line for the minimap route marker
+        private void DrawDashedLine(int x0, int y0, int x1, int y1, Color color, int dashOn, int dashOff)
+        {
+            int dx = Mathf.Abs(x1 - x0), dy = Mathf.Abs(y1 - y0);
+            int sx = x0 < x1 ? 1 : -1;
+            int sy = y0 < y1 ? 1 : -1;
+            int err = dx - dy;
+            int counter = 0;
+            int period = dashOn + dashOff;
+            int size = MINIMAP_TEX_RES;
+            while (true)
+            {
+                if ((counter % period) < dashOn)
+                {
+                    if (x0 >= 0 && x0 < size && y0 >= 0 && y0 < size)
+                        minimapTex.SetPixel(x0, y0, color);
+                }
+                if (x0 == x1 && y0 == y1) break;
+                int e2 = 2 * err;
+                if (e2 > -dy) { err -= dy; x0 += sx; }
+                if (e2 <  dx) { err += dx; y0 += sy; }
+                counter++;
+            }
         }
 
         private void OnDestroy()
@@ -399,43 +503,95 @@ namespace FightForLife.UI
 
         private void CreateMissionPanel()
         {
-            float panelW = 320f;
-            float panelH = 100f;
+            float panelW = 340f;
+            float panelH = 110f;
 
-            var panel = CreatePanel("MissionPanel", canvas.transform,
-                new Vector2(1f, 1f), new Vector2(1f, 1f),
-                new Vector2(-20f, -70f),
-                new Vector2(panelW, panelH), COL_PANEL, 8f);
-            missionPanel = panel.gameObject;
+            // Create panel GameObject directly so we control pivot/anchors precisely
+            var panelGO = new GameObject("MissionPanel");
+            panelGO.transform.SetParent(canvas.transform, false);
+            var panelImg = panelGO.AddComponent<Image>();
+            panelImg.color = COL_PANEL;
+            panelImg.raycastTarget = false;
+            var panelRect = panelGO.GetComponent<RectTransform>();
+            panelRect.anchorMin = new Vector2(1f, 1f);
+            panelRect.anchorMax = new Vector2(1f, 1f);
+            panelRect.pivot = new Vector2(1f, 1f);
+            panelRect.sizeDelta = new Vector2(panelW, panelH);
+            panelRect.anchoredPosition = new Vector2(-20f, -70f);
+            missionPanel = panelGO;
 
-            // Mission name
-            missionNameText = CreateTMP("MissionName", panel,
-                new Vector2(0f, 1f), new Vector2(1f, 1f),
-                new Vector2(12f, -8f), new Vector2(-12f, -8f),
-                "MISSION", 14f, COL_WHITE, TextAlignmentOptions.TopLeft);
-            missionNameText.rectTransform.anchorMin = new Vector2(0f, 1f);
-            missionNameText.rectTransform.anchorMax = new Vector2(1f, 1f);
-            missionNameText.rectTransform.offsetMin = new Vector2(12f, -32f);
-            missionNameText.rectTransform.offsetMax = new Vector2(-12f, -8f);
+            // Accent strip (left side, bright color)
+            var accent = new GameObject("Accent");
+            accent.transform.SetParent(panelRect, false);
+            var accentImg = accent.AddComponent<Image>();
+            accentImg.color = COL_SCORE;
+            accentImg.raycastTarget = false;
+            var accentRect = accent.GetComponent<RectTransform>();
+            accentRect.anchorMin = new Vector2(0f, 0f);
+            accentRect.anchorMax = new Vector2(0f, 1f);
+            accentRect.pivot = new Vector2(0f, 0.5f);
+            accentRect.sizeDelta = new Vector2(4f, 0f);
+            accentRect.anchoredPosition = Vector2.zero;
+
+            // Mission name (top of panel)
+            var nameGO = new GameObject("MissionName");
+            nameGO.transform.SetParent(panelRect, false);
+            missionNameText = nameGO.AddComponent<TextMeshProUGUI>();
+            missionNameText.text = "MISSION";
+            missionNameText.fontSize = 16f;
+            missionNameText.color = COL_WHITE;
+            missionNameText.alignment = TextAlignmentOptions.TopLeft;
             missionNameText.fontStyle = FontStyles.Bold;
+            missionNameText.raycastTarget = false;
+            missionNameText.enableWordWrapping = false;
+            missionNameText.overflowMode = TextOverflowModes.Ellipsis;
+            var nameRect = missionNameText.rectTransform;
+            nameRect.anchorMin = new Vector2(0f, 1f);
+            nameRect.anchorMax = new Vector2(1f, 1f);
+            nameRect.pivot = new Vector2(0.5f, 1f);
+            nameRect.offsetMin = new Vector2(14f, -34f);
+            nameRect.offsetMax = new Vector2(-90f, -8f);
 
-            // Objective text
-            missionObjectiveText = CreateTMP("MissionObj", panel,
-                new Vector2(0f, 1f), new Vector2(1f, 1f),
-                Vector2.zero, Vector2.zero,
-                "Objective", 12f, new Color(0.8f, 0.8f, 0.8f), TextAlignmentOptions.TopLeft);
-            missionObjectiveText.rectTransform.anchorMin = new Vector2(0f, 0f);
-            missionObjectiveText.rectTransform.anchorMax = new Vector2(1f, 1f);
-            missionObjectiveText.rectTransform.offsetMin = new Vector2(12f, 8f);
-            missionObjectiveText.rectTransform.offsetMax = new Vector2(-12f, -36f);
+            // Objective text (below name)
+            var objGO = new GameObject("MissionObj");
+            objGO.transform.SetParent(panelRect, false);
+            missionObjectiveText = objGO.AddComponent<TextMeshProUGUI>();
+            missionObjectiveText.text = "Objective";
+            missionObjectiveText.fontSize = 13f;
+            missionObjectiveText.color = new Color(0.85f, 0.85f, 0.85f);
+            missionObjectiveText.alignment = TextAlignmentOptions.TopLeft;
+            missionObjectiveText.raycastTarget = false;
+            missionObjectiveText.enableWordWrapping = true;
+            missionObjectiveText.overflowMode = TextOverflowModes.Ellipsis;
+            var objRect = missionObjectiveText.rectTransform;
+            objRect.anchorMin = new Vector2(0f, 0f);
+            objRect.anchorMax = new Vector2(1f, 1f);
+            objRect.pivot = new Vector2(0.5f, 0.5f);
+            objRect.offsetMin = new Vector2(14f, 8f);
+            objRect.offsetMax = new Vector2(-14f, -36f);
 
-            // Timer text
-            missionTimerText = CreateTMP("MissionTimer", panel,
-                new Vector2(1f, 1f), new Vector2(1f, 1f),
-                new Vector2(-12f, -8f), new Vector2(80f, 24f),
-                "", 12f, COL_SCORE, TextAlignmentOptions.Right);
+            // Timer text (top right)
+            var timerGO = new GameObject("MissionTimer");
+            timerGO.transform.SetParent(panelRect, false);
+            missionTimerText = timerGO.AddComponent<TextMeshProUGUI>();
+            missionTimerText.text = "";
+            missionTimerText.fontSize = 14f;
+            missionTimerText.color = COL_SCORE;
+            missionTimerText.alignment = TextAlignmentOptions.TopRight;
+            missionTimerText.fontStyle = FontStyles.Bold;
+            missionTimerText.raycastTarget = false;
+            missionTimerText.enableWordWrapping = false;
+            var timerRect = missionTimerText.rectTransform;
+            timerRect.anchorMin = new Vector2(1f, 1f);
+            timerRect.anchorMax = new Vector2(1f, 1f);
+            timerRect.pivot = new Vector2(1f, 1f);
+            timerRect.sizeDelta = new Vector2(80f, 24f);
+            timerRect.anchoredPosition = new Vector2(-12f, -8f);
 
-            missionPanel.SetActive(false);
+            // Show panel by default — UpdateMissionPanel will hide it if no mission active
+            missionPanel.SetActive(true);
+            missionNameText.text = "Awaiting Mission...";
+            missionObjectiveText.text = "";
         }
 
         // ─────────────────── MINIMAP (bottom-right) ────────────────────────
@@ -451,6 +607,7 @@ namespace FightForLife.UI
                 new Vector2(-margin, margin),
                 new Vector2(MINIMAP_SIZE + 6f, MINIMAP_SIZE + 6f),
                 new Color(0.15f, 0.15f, 0.15f, 0.9f), 4f);
+            minimapBorder = border;
 
             // Inner frame
             var inner = CreatePanel("MinimapInner", border,
@@ -514,47 +671,28 @@ namespace FightForLife.UI
                 new Vector2(0f, -15f),
                 new Vector2(COMPASS_WIDTH, COMPASS_HEIGHT + 8f),
                 COL_PANEL, 4f);
-
             compassContainer = bg;
 
-            // Clip area
-            var clipGO = new GameObject("CompassClip");
-            clipGO.transform.SetParent(bg, false);
-            var clipRect = clipGO.AddComponent<RectTransform>();
-            clipRect.anchorMin = Vector2.zero;
-            clipRect.anchorMax = Vector2.one;
-            clipRect.offsetMin = new Vector2(4f, 2f);
-            clipRect.offsetMax = new Vector2(-4f, -2f);
-            var clipMask = clipGO.AddComponent<RectMask2D>();
+            // Use the bg directly as the label parent (no clip mask — alpha fade handles edges)
+            compassStrip = bg;
 
-            // Compass strip (wide, slides left/right)
-            var stripGO = new GameObject("CompassStrip");
-            stripGO.transform.SetParent(clipGO.transform, false);
-            compassStrip = stripGO.AddComponent<RectTransform>();
-            compassStrip.anchorMin = new Vector2(0.5f, 0f);
-            compassStrip.anchorMax = new Vector2(0.5f, 1f);
-            compassStrip.sizeDelta = new Vector2(COMPASS_WIDTH * 4f, 0f);
-            compassStrip.anchoredPosition = Vector2.zero;
-
-            // Place N, E, S, W cardinal labels on the strip
-            // Strip spans 360 degrees across its width
-            float stripW = COMPASS_WIDTH * 4f;
+            // Create 8 direction labels parented directly to bg
             string[] dirs = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
             compassLetters = new TextMeshProUGUI[dirs.Length];
             for (int i = 0; i < dirs.Length; i++)
             {
-                float frac = i / (float)dirs.Length;
-                float xPos = (frac - 0.5f) * stripW;
                 bool isCardinal = (i % 2 == 0);
-                float fontSize = isCardinal ? 16f : 11f;
-                Color col = isCardinal ? COL_WHITE : new Color(0.6f, 0.6f, 0.6f);
+                float fontSize = isCardinal ? 18f : 12f;
+                Color col = isCardinal ? COL_WHITE : new Color(0.85f, 0.85f, 0.85f);
 
-                compassLetters[i] = CreateTMP("Dir_" + dirs[i], compassStrip,
+                // Use the working CreateTMP helper that score/civ counter use
+                var tmp = CreateTMP("Dir_" + dirs[i], bg,
                     new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                    new Vector2(xPos, 0f), new Vector2(40f, COMPASS_HEIGHT),
+                    Vector2.zero, new Vector2(40f, COMPASS_HEIGHT),
                     dirs[i], fontSize, col, TextAlignmentOptions.Center);
-                if (isCardinal)
-                    compassLetters[i].fontStyle = FontStyles.Bold;
+                tmp.enableWordWrapping = false;
+                if (isCardinal) tmp.fontStyle = FontStyles.Bold;
+                compassLetters[i] = tmp;
             }
 
             // Center tick mark
@@ -868,12 +1006,28 @@ namespace FightForLife.UI
 
         // --- Mission Panel ---
 
+        private int _missionDebugCount;
         private void UpdateMissionPanel()
         {
             // Re-find missionManager in case it was null at start
             if (missionManager == null)
                 missionManager = MissionManager.Instance ?? FindAnyObjectByType<MissionManager>();
-            if (missionManager == null) return;
+
+            // Log first 3 calls so we can definitively see what state UpdateMissionPanel sees
+            if (_missionDebugCount < 3)
+            {
+                _missionDebugCount++;
+                var mm = missionManager;
+                var act = mm != null ? mm.ActiveMission : null;
+                var allActive = mm != null ? mm.GetActiveMissions().Count : -1;
+                Debug.Log($"[HUD-DBG #{_missionDebugCount}] frame={Time.frameCount} mm={(mm==null?"NULL":"OK")} active={(act==null?"NULL":act.missionName)} count={allActive} panel={(missionPanel==null?"NULL":missionPanel.activeSelf.ToString())} nameTxt={(missionNameText==null?"NULL":"OK")}");
+            }
+
+            if (missionManager == null)
+            {
+                if (missionNameText != null) missionNameText.text = "No MissionManager";
+                return;
+            }
 
             MissionData active = missionManager.ActiveMission;
             bool hasMission = active != null && active.status == MissionStatus.Active;
@@ -889,10 +1043,17 @@ namespace FightForLife.UI
                 }
             }
 
-            if (missionPanel != null && missionPanel.activeSelf != hasMission)
-                missionPanel.SetActive(hasMission);
+            // Keep panel always visible — display state in text instead of hiding
+            if (missionPanel != null && !missionPanel.activeSelf)
+                missionPanel.SetActive(true);
 
-            if (!hasMission || missionPanel == null) return;
+            if (!hasMission)
+            {
+                if (missionNameText != null) missionNameText.text = "No active mission";
+                if (missionObjectiveText != null) missionObjectiveText.text = "";
+                if (missionTimerText != null) missionTimerText.gameObject.SetActive(false);
+                return;
+            }
 
             // Mission name
             var allMissions = missionManager.GetActiveMissions();
@@ -969,22 +1130,34 @@ namespace FightForLife.UI
 
         private void UpdateCompass()
         {
-            if (compassStrip == null) return;
+            if (compassStrip == null || compassLetters == null) return;
 
             float yaw = 0f;
-            if (thirdPersonCam != null)
-                yaw = thirdPersonCam.Yaw;
-            else if (playerTransform != null)
+            if (playerTransform != null)
                 yaw = playerTransform.eulerAngles.y;
+            else if (thirdPersonCam != null)
+                yaw = thirdPersonCam.Yaw;
 
-            float yRot = yaw;
-            // Map rotation to strip offset: 0 degrees = N centered
-            float stripW = COMPASS_WIDTH * 4f;
-            float offset = -(yRot / 360f) * stripW;
-            compassStrip.anchoredPosition = new Vector2(offset, 0f);
+            // Pixels per degree across the visible compass width.
+            // Visible window = COMPASS_WIDTH pixels showing 180° of horizon.
+            const float visibleDegrees = 180f;
+            float pxPerDegree = (COMPASS_WIDTH - 8f) / visibleDegrees;
 
-            // Update waypoint markers on compass if mission active
-            UpdateCompassWaypoints(yRot);
+            // Reposition each label using shortest signed angle relative to player heading
+            for (int i = 0; i < compassLetters.Length; i++)
+            {
+                if (compassLetters[i] == null) continue;
+                float labelAngle = i * 45f; // N=0, NE=45, E=90, ...
+                float diff = Mathf.DeltaAngle(yaw, labelAngle); // -180..+180
+                float xPos = diff * pxPerDegree;
+                var rt = compassLetters[i].rectTransform;
+                rt.anchoredPosition = new Vector2(xPos, 0f);
+                // Hard-cull labels outside the visible window; full opacity inside
+                bool visible = Mathf.Abs(diff) <= visibleDegrees * 0.5f;
+                compassLetters[i].gameObject.SetActive(visible);
+            }
+
+            UpdateCompassWaypoints(yaw);
         }
 
         private void UpdateCompassWaypoints(float playerYRot)
@@ -1010,6 +1183,56 @@ namespace FightForLife.UI
 
         private int minimapFrameCounter;
         private const float MINIMAP_VIEW_RANGE = 200f; // 200m radius around player
+        private List<Vector3> buildingPositions;
+        private float buildingCacheTime;
+
+        private void RefreshBuildingCache()
+        {
+            buildingPositions = new List<Vector3>();
+            // Find by tag if available
+            try
+            {
+                var byTag = GameObject.FindGameObjectsWithTag("Building");
+                foreach (var go in byTag) buildingPositions.Add(go.transform.position);
+            }
+            catch { }
+            // Also find by common name patterns (no tag required)
+            string[] keywords = { "House", "Building", "Hut", "Temple", "Barn", "Shed", "Cabin", "Tower" };
+            var allRoots = GameObject.FindObjectsByType<Transform>(FindObjectsSortMode.None);
+            foreach (var t in allRoots)
+            {
+                if (t == null || t.name == null) continue;
+                foreach (var k in keywords)
+                {
+                    if (t.name.IndexOf(k, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        buildingPositions.Add(t.position);
+                        break;
+                    }
+                }
+            }
+            buildingCacheTime = Time.time;
+        }
+
+        private void DrawBuildingDots(float playerX, float playerZ, float pixelToWorld, int size)
+        {
+            // Refresh cache every 10 seconds (objects may stream in)
+            if (buildingPositions == null || Time.time - buildingCacheTime > 10f)
+                RefreshBuildingCache();
+
+            Color buildingColor = new Color(0.55f, 0.4f, 0.25f);
+            foreach (var pos in buildingPositions)
+            {
+                float dx = pos.x - playerX;
+                float dz = pos.z - playerZ;
+                if (Mathf.Abs(dx) > MINIMAP_VIEW_RANGE || Mathf.Abs(dz) > MINIMAP_VIEW_RANGE) continue;
+                int px = Mathf.Clamp(Mathf.RoundToInt((dx / pixelToWorld) + size / 2f), 1, size - 2);
+                int py = Mathf.Clamp(Mathf.RoundToInt((dz / pixelToWorld) + size / 2f), 1, size - 2);
+                for (int ox = -1; ox <= 1; ox++)
+                    for (int oy = -1; oy <= 1; oy++)
+                        minimapTex.SetPixel(px + ox, py + oy, buildingColor);
+            }
+        }
 
         private void UpdateMinimap()
         {
@@ -1054,6 +1277,34 @@ namespace FightForLife.UI
 
             minimapTex.SetPixels(minimapClearPixels);
 
+            // Draw player heading cone (60° arc forward of player position)
+            if (playerTransform != null)
+            {
+                float playerYaw = playerTransform.eulerAngles.y * Mathf.Deg2Rad;
+                int coneRange = 32; // pixels
+                float halfFOV = 30f * Mathf.Deg2Rad;
+                Color coneColor = new Color(1f, 1f, 0.6f, 0.4f);
+                for (int r = 2; r < coneRange; r++)
+                {
+                    int steps = Mathf.Max(8, r * 2);
+                    for (int s = 0; s <= steps; s++)
+                    {
+                        float a = -halfFOV + (s / (float)steps) * (halfFOV * 2f);
+                        float worldAngle = playerYaw + a;
+                        int px = size / 2 + Mathf.RoundToInt(Mathf.Sin(worldAngle) * r);
+                        int py = size / 2 + Mathf.RoundToInt(Mathf.Cos(worldAngle) * r);
+                        if (px >= 0 && px < size && py >= 0 && py < size)
+                        {
+                            Color existing = minimapTex.GetPixel(px, py);
+                            minimapTex.SetPixel(px, py, Color.Lerp(existing, coneColor, 0.45f));
+                        }
+                    }
+                }
+            }
+
+            // Draw building/POI dots
+            DrawBuildingDots(playerX, playerZ, pixelToWorld, size);
+
             // Draw NPCs as colored dots
             if (npcSpawner != null)
             {
@@ -1084,7 +1335,7 @@ namespace FightForLife.UI
                 }
             }
 
-            // Draw mission waypoint as gold star
+            // Draw mission waypoint + route line from player to waypoint
             if (missionManager != null && missionManager.ActiveMission != null)
             {
                 var wp = missionManager.ActiveMission.waypointPosition;
@@ -1103,12 +1354,23 @@ namespace FightForLife.UI
                     int wpx = Mathf.Clamp(Mathf.RoundToInt((dx / pixelToWorld) + size / 2f), 3, size - 4);
                     int wpy = Mathf.Clamp(Mathf.RoundToInt((dz / pixelToWorld) + size / 2f), 3, size - 4);
 
+                    // Route line from player center to waypoint (dashed)
+                    Color routeColor = new Color(1f, 0.85f, 0.2f, 1f);
+                    DrawDashedLine(size / 2, size / 2, wpx, wpy, routeColor, 4, 3);
+
+                    // Gold cross marker at waypoint
                     Color gold = new Color(1f, 0.85f, 0f);
                     for (int ox = -3; ox <= 3; ox++)
                     {
                         minimapTex.SetPixel(wpx + ox, wpy, gold);
                         minimapTex.SetPixel(wpx, wpy + ox, gold);
                     }
+                    // Outline the gold cross with darker gold for visibility
+                    Color goldDark = new Color(0.6f, 0.45f, 0f);
+                    minimapTex.SetPixel(wpx + 4, wpy, goldDark);
+                    minimapTex.SetPixel(wpx - 4, wpy, goldDark);
+                    minimapTex.SetPixel(wpx, wpy + 4, goldDark);
+                    minimapTex.SetPixel(wpx, wpy - 4, goldDark);
                 }
             }
 
