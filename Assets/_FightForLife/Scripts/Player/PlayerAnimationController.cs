@@ -26,7 +26,12 @@ namespace FightForLife.Player
                 animator = GetComponentInChildren<Animator>();
 
             if (animator != null)
+            {
                 animator.applyRootMotion = false;
+                // Always animate even when off-screen / camera clipping into mesh,
+                // otherwise the walk cycle freezes when colliding with walls.
+                animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            }
         }
 
         private void Update()
