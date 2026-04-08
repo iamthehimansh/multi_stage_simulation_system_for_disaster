@@ -230,13 +230,7 @@ namespace FightForLife.Player
             cc.Move(moveDir * Time.deltaTime);
             currentVelocity = cc.velocity;
 
-            // NO rotation — player faces wherever camera points
-            // The model rotates toward movement direction for visual feedback only
-            if (hasInput)
-            {
-                Quaternion targetRot = Quaternion.LookRotation(inputDir);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, 10f * Time.deltaTime);
-            }
+            // Player rotation is controlled by ThirdPersonCamera (mouse input)
         }
 
         private void HandleWadingMovement()
@@ -270,12 +264,6 @@ namespace FightForLife.Player
 
             cc.Move(moveDir * Time.deltaTime);
             currentVelocity = cc.velocity;
-
-            if (inputDir.sqrMagnitude > 0.01f)
-            {
-                Quaternion targetRot = Quaternion.LookRotation(inputDir);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, 8f * Time.deltaTime);
-            }
         }
 
         private void HandleSwimmingMovement()
@@ -307,12 +295,6 @@ namespace FightForLife.Player
 
             cc.Move(moveDir * Time.deltaTime);
             currentVelocity = cc.velocity;
-
-            if (inputDir.sqrMagnitude > 0.01f)
-            {
-                Quaternion targetRot = Quaternion.LookRotation(inputDir);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, 8f * Time.deltaTime);
-            }
         }
 
         private void HandleDivingMovement()

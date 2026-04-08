@@ -474,38 +474,13 @@ namespace FightForLife.UI
             minimapTex.filterMode = FilterMode.Point;
             minimapImage.texture = minimapTex;
 
-            // Pre-fill with base terrain colors by sampling terrain heights
-            var terrain = Terrain.activeTerrain;
+            // Allocate clear pixel buffer (will be re-sampled per frame from player position)
             minimapClearPixels = new Color[texSize * texSize];
-
-            if (terrain != null)
-            {
-                for (int y = 0; y < texSize; y++)
-                {
-                    for (int x = 0; x < texSize; x++)
-                    {
-                        // Map pixel to world position (centered on village area)
-                        float worldX = -375f + (x - texSize / 2f) * (MINIMAP_CAM_ORTHO * 2f / texSize);
-                        float worldZ = 625f + (y - texSize / 2f) * (MINIMAP_CAM_ORTHO * 2f / texSize);
-                        float h = terrain.SampleHeight(new Vector3(worldX, 0, worldZ));
-
-                        Color c;
-                        if (h < 2f) c = new Color(0.15f, 0.25f, 0.4f); // Water/deep
-                        else if (h < 8f) c = new Color(0.7f, 0.65f, 0.5f); // Sand
-                        else if (h < 25f) c = new Color(0.25f, 0.4f, 0.2f); // Grass
-                        else if (h < 60f) c = new Color(0.2f, 0.35f, 0.18f); // Hills
-                        else c = new Color(0.35f, 0.3f, 0.25f); // Mountains
-
-                        minimapClearPixels[y * texSize + x] = c;
-                    }
-                }
-            }
-            else
-            {
-                Color bg = new Color(0.2f, 0.3f, 0.15f);
-                for (int i = 0; i < minimapClearPixels.Length; i++)
-                    minimapClearPixels[i] = bg;
-            }
+            Color initBg = new Color(0.2f, 0.3f, 0.15f);
+            for (int i = 0; i < minimapClearPixels.Length; i++)
+                minimapClearPixels[i] = initBg;
+            minimapTex.SetPixels(minimapClearPixels);
+            minimapTex.Apply();
 
             // Player arrow in center
             playerArrow = CreateImage("PlayerArrow", inner,
@@ -895,6 +870,9 @@ namespace FightForLife.UI
 
         private void UpdateMissionPanel()
         {
+            // Re-find missionManager in case it was null at start
+            if (missionManager == null)
+                missionManager = MissionManager.Instance ?? FindAnyObjectByType<MissionManager>();
             if (missionManager == null) return;
 
             MissionData active = missionManager.ActiveMission;
@@ -911,10 +889,10 @@ namespace FightForLife.UI
                 }
             }
 
-            if (missionPanel.activeSelf != hasMission)
+            if (missionPanel != null && missionPanel.activeSelf != hasMission)
                 missionPanel.SetActive(hasMission);
 
-            if (!hasMission) return;
+            if (!hasMission || missionPanel == null) return;
 
             // Mission name
             var allMissions = missionManager.GetActiveMissions();
@@ -1028,23 +1006,53 @@ namespace FightForLife.UI
             }
         }
 
-        // --- Minimap (procedural) ---
+        // --- Minimap (procedural, player-centered) ---
 
         private int minimapFrameCounter;
+        private const float MINIMAP_VIEW_RANGE = 200f; // 200m radius around player
+
         private void UpdateMinimap()
         {
             if (minimapTex == null || playerTransform == null) return;
 
-            // Only redraw every 3 frames for performance
+            // Only redraw every 5 frames for performance (256x256 = 65k pixels)
             minimapFrameCounter++;
-            if (minimapFrameCounter % 3 != 0) return;
+            if (minimapFrameCounter % 5 != 0) return;
 
             int size = MINIMAP_TEX_RES;
-            minimapTex.SetPixels(minimapClearPixels);
-
             float playerX = playerTransform.position.x;
             float playerZ = playerTransform.position.z;
-            float viewRange = MINIMAP_CAM_ORTHO * 2f;
+            var terrain = Terrain.activeTerrain;
+
+            // Sample terrain around player and draw to texture
+            float pixelToWorld = MINIMAP_VIEW_RANGE * 2f / size;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float worldX = playerX + (x - size / 2f) * pixelToWorld;
+                    float worldZ = playerZ + (y - size / 2f) * pixelToWorld;
+
+                    Color c;
+                    if (terrain != null)
+                    {
+                        float h = terrain.SampleHeight(new Vector3(worldX, 0, worldZ));
+                        if (h < 2f) c = new Color(0.15f, 0.3f, 0.5f); // Water
+                        else if (h < 10f) c = new Color(0.75f, 0.7f, 0.5f); // Sand/beach
+                        else if (h < 30f) c = new Color(0.3f, 0.5f, 0.2f); // Grass
+                        else if (h < 80f) c = new Color(0.2f, 0.4f, 0.15f); // Hills
+                        else c = new Color(0.4f, 0.35f, 0.3f); // Mountains
+                    }
+                    else
+                    {
+                        c = new Color(0.2f, 0.3f, 0.15f);
+                    }
+                    minimapClearPixels[y * size + x] = c;
+                }
+            }
+
+            minimapTex.SetPixels(minimapClearPixels);
 
             // Draw NPCs as colored dots
             if (npcSpawner != null)
@@ -1055,10 +1063,12 @@ namespace FightForLife.UI
                     foreach (var npc in npcs)
                     {
                         if (npc == null) continue;
-                        float dx = npc.transform.position.x - (-375f);
-                        float dz = npc.transform.position.z - 625f;
-                        int px = Mathf.Clamp(Mathf.RoundToInt((dx / viewRange + 0.5f) * size), 1, size - 2);
-                        int py = Mathf.Clamp(Mathf.RoundToInt((dz / viewRange + 0.5f) * size), 1, size - 2);
+                        float dx = npc.transform.position.x - playerX;
+                        float dz = npc.transform.position.z - playerZ;
+                        if (Mathf.Abs(dx) > MINIMAP_VIEW_RANGE || Mathf.Abs(dz) > MINIMAP_VIEW_RANGE) continue;
+
+                        int px = Mathf.Clamp(Mathf.RoundToInt((dx / pixelToWorld) + size / 2f), 2, size - 3);
+                        int py = Mathf.Clamp(Mathf.RoundToInt((dz / pixelToWorld) + size / 2f), 2, size - 3);
 
                         Color dotColor = Color.green;
                         var state = npc.CurrentState;
@@ -1067,18 +1077,45 @@ namespace FightForLife.UI
                         else if (state == FightForLife.NPC.NPCState.Struggling || state == FightForLife.NPC.NPCState.Drowning || state == FightForLife.NPC.NPCState.Trapped)
                             dotColor = Color.red;
 
-                        // Draw 3x3 dot
-                        for (int ox = -1; ox <= 1; ox++)
-                            for (int oy = -1; oy <= 1; oy++)
+                        for (int ox = -2; ox <= 2; ox++)
+                            for (int oy = -2; oy <= 2; oy++)
                                 minimapTex.SetPixel(px + ox, py + oy, dotColor);
                     }
                 }
             }
 
-            // Draw player as white cross in center
-            int cx = Mathf.Clamp(Mathf.RoundToInt(((playerX - (-375f)) / viewRange + 0.5f) * size), 2, size - 3);
-            int cy = Mathf.Clamp(Mathf.RoundToInt(((playerZ - 625f) / viewRange + 0.5f) * size), 2, size - 3);
-            for (int i = -2; i <= 2; i++)
+            // Draw mission waypoint as gold star
+            if (missionManager != null && missionManager.ActiveMission != null)
+            {
+                var wp = missionManager.ActiveMission.waypointPosition;
+                if (wp != Vector3.zero)
+                {
+                    float dx = wp.x - playerX;
+                    float dz = wp.z - playerZ;
+                    // Clamp to edge if outside range
+                    float maxDist = MINIMAP_VIEW_RANGE * 0.95f;
+                    if (Mathf.Abs(dx) > maxDist || Mathf.Abs(dz) > maxDist)
+                    {
+                        float scale = maxDist / Mathf.Max(Mathf.Abs(dx), Mathf.Abs(dz));
+                        dx *= scale;
+                        dz *= scale;
+                    }
+                    int wpx = Mathf.Clamp(Mathf.RoundToInt((dx / pixelToWorld) + size / 2f), 3, size - 4);
+                    int wpy = Mathf.Clamp(Mathf.RoundToInt((dz / pixelToWorld) + size / 2f), 3, size - 4);
+
+                    Color gold = new Color(1f, 0.85f, 0f);
+                    for (int ox = -3; ox <= 3; ox++)
+                    {
+                        minimapTex.SetPixel(wpx + ox, wpy, gold);
+                        minimapTex.SetPixel(wpx, wpy + ox, gold);
+                    }
+                }
+            }
+
+            // Player white cross in center
+            int cx = size / 2;
+            int cy = size / 2;
+            for (int i = -3; i <= 3; i++)
             {
                 minimapTex.SetPixel(cx + i, cy, Color.white);
                 minimapTex.SetPixel(cx, cy + i, Color.white);
@@ -1086,9 +1123,9 @@ namespace FightForLife.UI
 
             minimapTex.Apply();
 
-            // Rotate player arrow to match camera yaw
-            if (playerArrow != null && thirdPersonCam != null)
-                playerArrow.rectTransform.localRotation = Quaternion.Euler(0, 0, -thirdPersonCam.Yaw);
+            // Rotate player arrow to match player facing direction
+            if (playerArrow != null && playerTransform != null)
+                playerArrow.rectTransform.localRotation = Quaternion.Euler(0, 0, -playerTransform.eulerAngles.y);
         }
 
         // ═══════════════════════ EVENT HANDLERS ════════════════════════════

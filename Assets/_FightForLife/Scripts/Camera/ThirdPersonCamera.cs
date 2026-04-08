@@ -119,17 +119,23 @@ namespace FightForLife.Camera
 
         private void HandleInput()
         {
-            // Orbit input
-            bool canOrbit = alwaysOrbit || Input.GetMouseButton(1);
-            if (canOrbit)
-            {
-                float mouseX = Input.GetAxis("Mouse X") * mouseSensitivityX;
-                float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivityY;
+            // Mouse input - rotate player body horizontally, only camera rotates vertically
+            float mouseX = Input.GetAxis("Mouse X") * mouseSensitivityX;
+            float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivityY;
 
-                Yaw += mouseX;
-                Pitch -= mouseY;
-                Pitch = Mathf.Clamp(Pitch, minPitch, maxPitch);
+            // Rotate player body on Y axis (yaw)
+            if (target != null && Mathf.Abs(mouseX) > 0.001f)
+            {
+                target.Rotate(0f, mouseX, 0f, Space.World);
             }
+
+            // Camera yaw follows player rotation
+            if (target != null)
+                Yaw = target.eulerAngles.y;
+
+            // Camera pitch (vertical look) is independent
+            Pitch -= mouseY;
+            Pitch = Mathf.Clamp(Pitch, minPitch, maxPitch);
 
             // Scroll zoom
             float scroll = Input.GetAxis("Mouse ScrollWheel");
