@@ -609,12 +609,14 @@ namespace FightForLife.UI
                 new Color(0.15f, 0.15f, 0.15f, 0.9f), 4f);
             minimapBorder = border;
 
-            // Inner frame
+            // Inner frame — stretches to fill border so it scales with maximize toggle
             var inner = CreatePanel("MinimapInner", border,
-                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(0f, 0f), new Vector2(1f, 1f),
                 Vector2.zero,
-                new Vector2(MINIMAP_SIZE, MINIMAP_SIZE),
+                Vector2.zero,
                 new Color(0.12f, 0.18f, 0.12f), 2f);
+            inner.offsetMin = new Vector2(3f, 3f);
+            inner.offsetMax = new Vector2(-3f, -3f);
 
             // RawImage for procedural texture
             var mmGO = new GameObject("MinimapImage");
@@ -1422,6 +1424,43 @@ namespace FightForLife.UI
         private void OnMissionStarted(MissionData mission)
         {
             ShowWarningBanner($"NEW MISSION: {mission.missionName}", COL_SCORE);
+            ShowMissionBriefing(mission);
+        }
+
+        // Per-mission briefing with controls hints
+        private void ShowMissionBriefing(MissionData mission)
+        {
+            string controls;
+            switch (mission.missionId)
+            {
+                case "VM01":
+                    controls = "Run to the temple (yellow marker on map). When near the BELL, HOLD [E] for 2 seconds to ring it.";
+                    break;
+                case "VM02":
+                    controls = "Find civilians around the village. Walk up to each one and HOLD [E] to rescue.";
+                    break;
+                case "VM03":
+                    controls = "Lead NPCs across the bridge. Approach each NPC and HOLD [E] to guide them.";
+                    break;
+                case "VM04":
+                    controls = "Dive into the cellar (HOLD [LEFT CTRL] to dive underwater). Find and rescue the trapped child.";
+                    break;
+                case "VM05":
+                    controls = "Sprint to the extraction point (yellow marker). HOLD [LEFT SHIFT] to sprint. Don't drown!";
+                    break;
+                default:
+                    controls = mission.description;
+                    break;
+            }
+            StartCoroutine(BriefingRoutine(mission.missionName, controls));
+        }
+
+        private IEnumerator BriefingRoutine(string title, string body)
+        {
+            // Reuse warning banner with longer text + duration
+            if (warningCoroutine != null) StopCoroutine(warningCoroutine);
+            warningCoroutine = StartCoroutine(WarningBannerRoutine($"{title}\n<size=70%>{body}", COL_SCORE));
+            yield return null;
         }
 
         private void OnMissionCompleted(MissionData mission)
