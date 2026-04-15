@@ -113,6 +113,36 @@ namespace FightForLife.Disaster
         {
             return config != null ? config.baseFlowDirection.normalized : Vector2.right;
         }
+
+        /// <summary>
+        /// Force-advance the flood phase (e.g. after the warning bell is rung).
+        /// Snaps elapsedTime to the start of the target phase so timing keeps flowing naturally.
+        /// </summary>
+        public void ForceAdvancePhase(FloodPhase target)
+        {
+            if (target == currentPhase) return;
+            if (config == null) return;
+
+            // Only allow forward jumps
+            if ((int)target <= (int)currentPhase) return;
+
+            switch (target)
+            {
+                case FloodPhase.Warning:
+                    elapsedTime = 0f;
+                    break;
+                case FloodPhase.DisasterStrikes:
+                    elapsedTime = config.phase1Duration + 0.01f;
+                    break;
+                case FloodPhase.Escape:
+                    elapsedTime = config.phase1Duration + config.phase2Duration + 0.01f;
+                    break;
+            }
+
+            currentPhase = target;
+            OnPhaseChanged?.Invoke(currentPhase);
+            Debug.Log($"[Flood] Phase force-advanced to: {currentPhase}");
+        }
     }
 
     public enum FloodPhase

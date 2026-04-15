@@ -62,6 +62,12 @@ namespace FightForLife.NPC
 
         public event System.Action<CivilianAI, NPCState> OnStateChanged;
 
+        // Set to true the first time the player successfully calms/rescues/frees this NPC,
+        // so the rescue counter only ticks once per NPC even if state changes later.
+        private bool _rescueCounted;
+        public bool IsRescueCounted => _rescueCounted;
+        public void MarkRescueCounted() { _rescueCounted = true; }
+
         private NavMeshAgent agent;
         private AudioSource audioSource;
         private Animator animator;
@@ -237,7 +243,8 @@ namespace FightForLife.NPC
                 Vector3 randomPoint = transform.position + Random.insideUnitSphere * 10f;
                 if (NavMesh.SamplePosition(randomPoint, out NavMeshHit hit, 10f, NavMesh.AllAreas))
                 {
-                    agent.SetDestination(hit.position);
+                    if (IsOnTerrain(hit.position))
+                        agent.SetDestination(hit.position);
                 }
             }
 
@@ -371,6 +378,8 @@ namespace FightForLife.NPC
 
                 if (NavMesh.SamplePosition(samplePos, out NavMeshHit hit, highGroundSearchRadius, NavMesh.AllAreas))
                 {
+                    // Reject points that sit on top of a building / non-terrain surface.
+                    if (!IsOnTerrain(hit.position)) continue;
                     if (hit.position.y > bestHeight)
                     {
                         bestHeight = hit.position.y;
@@ -380,6 +389,23 @@ namespace FightForLife.NPC
             }
 
             return bestPoint;
+        }
+
+        private static bool IsOnTerrain(Vector3 point)
+        {
+            // Raycast down from just above the point. If the first thing we hit
+            // is named like a building, the navmesh point is on a roof, not terrain.
+            Vector3 origin = point + Vector3.up * 0.6f;
+            RaycastHit h;
+            if (!Physics.Raycast(origin, Vector3.down, out h, 5f, ~0, QueryTriggerInteraction.Ignore))
+                return true; // nothing under it -- treat as terrain
+            string n = h.collider.gameObject.name.ToLowerInvariant();
+            if (n.Contains("house") || n.Contains("temple") || n.Contains("barn") ||
+                n.Contains("hut") || n.Contains("cabin") || n.Contains("shed") ||
+                n.Contains("tower") || n.Contains("wall") || n.Contains("roof") ||
+                n.Contains("mayor") || n.Contains("building") || n.Contains("struct"))
+                return false;
+            return true;
         }
 
         private void SetState(NPCState newState)
@@ -507,18 +533,51 @@ namespace FightForLife.NPC
         {
             followTarget = rescuer;
             SetState(NPCState.Following);
+            CountRescueOnce();
         }
 
         public void Calm(Transform calmer)
         {
             followTarget = calmer;
             SetState(NPCState.Following);
+            CountRescueOnce();
         }
 
         public void Free(Transform freer)
         {
             followTarget = freer;
             SetState(NPCState.Following);
+            CountRescueOnce();
+        }
+
+        private void CountRescueOnce()
+        {
+            if (_rescueCounted) return;
+            _rescueCounted = true;
+            var spawner = NPCSpawner.Instance;
+            if (spawner == null)
+            {
+                // Fallback: singleton backing field can be null after scene reload
+                // even when an active spawner exists in the scene. Find it directly.
+                spawner = Object.FindObjectOfType<NPCSpawner>();
+                if (spawner != null)
+                    NPCSpawner.SetInstance(spawner);
+            }
+            if (spawner != null)
+            {
+                spawner.NotifyRescue(this);
+            }
+            else
+            {
+                // Last-resort: still tick score + missions so player effort isn't lost
+                if (FightForLife.Core.ScoreManager.Instance != null)
+                    FightForLife.Core.ScoreManager.Instance.RescueCivilian();
+                if (FightForLife.Core.MissionManager.Instance != null)
+                {
+                    FightForLife.Core.MissionManager.Instance.UpdateObjective("VM02", "rescue_families");
+                    FightForLife.Core.MissionManager.Instance.UpdateObjective("VM03", "guide_across");
+                }
+            }
         }
 
         public void HealWithMedicalItem()
@@ -554,12 +613,12 @@ namespace FightForLife.NPC
         {
             return currentState switch
             {
-                NPCState.Drowning => "Rescue",
-                NPCState.Struggling => "Help",
-                NPCState.Panicking => "Calm Down",
-                NPCState.Alert => "Guide",
-                NPCState.Trapped => "Free",
-                NPCState.Injured => needsMedicalItem ? "Use Medical Item" : "Help",
+                NPCState.Drowning => "[E] Rescue",
+                NPCState.Struggling => "[E] Help",
+                NPCState.Panicking => "[E] Calm Down",
+                NPCState.Alert => "[E] Guide",
+                NPCState.Trapped => "[E] Free",
+                NPCState.Injured => needsMedicalItem ? "[F] Use Medical Item" : "[E] Help",
                 _ => ""
             };
         }

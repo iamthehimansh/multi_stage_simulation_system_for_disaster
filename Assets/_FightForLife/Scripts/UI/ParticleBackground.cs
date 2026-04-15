@@ -64,19 +64,27 @@ namespace FightForLife.UI
                 var collider = drop.GetComponent<Collider>();
                 if (collider != null) Destroy(collider);
 
-                // Set material
+                // Set material — fall back safely if the URP shader was stripped from the build.
                 var renderer = drop.GetComponent<Renderer>();
                 if (renderer != null)
                 {
-                    var mat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-                    mat.color = rainColor;
-                    mat.SetFloat("_Surface", 1); // Transparent
-                    mat.SetFloat("_Blend", 0);
-                    mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-                    mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-                    mat.SetInt("_ZWrite", 0);
-                    mat.renderQueue = 3000;
-                    renderer.material = mat;
+                    var shader = Shader.Find("Universal Render Pipeline/Unlit");
+                    if (shader == null) shader = Shader.Find("Unlit/Color");
+                    if (shader == null) shader = Shader.Find("Sprites/Default");
+                    if (shader != null)
+                    {
+                        var mat = new Material(shader);
+                        mat.color = rainColor;
+                        if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1);
+                        if (mat.HasProperty("_Blend")) mat.SetFloat("_Blend", 0);
+                        if (mat.HasProperty("_SrcBlend"))
+                            mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                        if (mat.HasProperty("_DstBlend"))
+                            mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                        if (mat.HasProperty("_ZWrite")) mat.SetInt("_ZWrite", 0);
+                        mat.renderQueue = 3000;
+                        renderer.material = mat;
+                    }
                 }
 
                 rainDrops[i] = new RainDrop

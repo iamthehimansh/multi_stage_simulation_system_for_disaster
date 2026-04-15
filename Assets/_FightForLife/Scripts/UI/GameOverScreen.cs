@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 using TMPro;
 using FightForLife.Core;
 
@@ -63,6 +64,7 @@ namespace FightForLife.UI
         public void Show(bool won)
         {
             screenCanvas.SetActive(true);
+            EnsureEventSystem();
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
 
@@ -109,6 +111,28 @@ namespace FightForLife.UI
         public void Hide()
         {
             screenCanvas.SetActive(false);
+        }
+
+        private void Update()
+        {
+            // While the game-over screen is visible, force-unlock cursor every frame
+            // in case some other system (camera, player controller) re-locks it.
+            if (screenCanvas != null && screenCanvas.activeSelf)
+            {
+                if (Cursor.lockState != CursorLockMode.None) Cursor.lockState = CursorLockMode.None;
+                if (!Cursor.visible) Cursor.visible = true;
+            }
+        }
+
+        private void EnsureEventSystem()
+        {
+            // The Island_Flood scene has no EventSystem, so UI clicks never register.
+            // Create one on demand the first time the game over screen is shown.
+            if (EventSystem.current != null) return;
+            var es = new GameObject("EventSystem");
+            es.AddComponent<EventSystem>();
+            es.AddComponent<StandaloneInputModule>();
+            DontDestroyOnLoad(es);
         }
 
         // ===================== RATING =====================

@@ -37,7 +37,14 @@ namespace FightForLife.UI
         private TextMeshProUGUI loadingTipText;
         private TextMeshProUGUI loadingPercentText;
 
-        private const string GAMEPLAY_SCENE = "Island_Flood";
+        // Map select screen (built programmatically)
+        private GameObject mapSelectPanel;
+
+        // Currently selected gameplay scene, chosen from the map-select panel.
+        private string selectedMapScene = "Island_Flood";
+
+        private const string MAP_ISLAND_FLOOD = "Island_Flood";
+        private const string MAP_ISLAND_FLOOD_M = "Island_flood_m";
 
         private static readonly string[] LoadingTips = new[]
         {
@@ -67,6 +74,7 @@ namespace FightForLife.UI
             Time.timeScale = 1f;
 
             BuildLoadingScreen();
+            BuildMapSelectPanel();
         }
 
         // ===================== PANEL NAVIGATION =====================
@@ -80,11 +88,57 @@ namespace FightForLife.UI
         public void OnNewGameClicked()
         {
             PlayClickSound();
+            // Show the map select panel first. After the player picks a map,
+            // we advance to role select, then load the selected scene.
             SetAllPanelsInactive();
-            if (roleSelectPanel != null)
+            if (mapSelectPanel != null)
+                mapSelectPanel.SetActive(true);
+            else if (roleSelectPanel != null)
                 roleSelectPanel.SetActive(true);
             else
                 StartGameWithRole(PlayerRole.Civilian);
+        }
+
+        // Called by the Island Flood button on the map select panel.
+        public void OnMapIslandFloodClicked()
+        {
+            PlayClickSound();
+            selectedMapScene = MAP_ISLAND_FLOOD;
+            TryStartSelectedMap();
+        }
+
+        // Called by the Island Flood M button on the map select panel.
+        public void OnMapIslandFloodMClicked()
+        {
+            PlayClickSound();
+            selectedMapScene = MAP_ISLAND_FLOOD_M;
+            TryStartSelectedMap();
+        }
+
+        private void TryStartSelectedMap()
+        {
+            if (!IsSceneInBuild(selectedMapScene))
+            {
+                SetAllPanelsInactive();
+                if (comingSoonPanel != null) comingSoonPanel.SetActive(true);
+                else if (mainMenuPanel != null) mainMenuPanel.SetActive(true);
+                return;
+            }
+            SetAllPanelsInactive();
+            if (roleSelectPanel != null) roleSelectPanel.SetActive(true);
+            else StartGameWithRole(PlayerRole.Civilian);
+        }
+
+        private static bool IsSceneInBuild(string sceneName)
+        {
+            int count = SceneManager.sceneCountInBuildSettings;
+            for (int i = 0; i < count; i++)
+            {
+                string path = UnityEngine.SceneManagement.SceneUtility.GetScenePathByBuildIndex(i);
+                if (string.IsNullOrEmpty(path)) continue;
+                if (System.IO.Path.GetFileNameWithoutExtension(path) == sceneName) return true;
+            }
+            return false;
         }
 
         public void OnContinueClicked()
@@ -145,16 +199,16 @@ namespace FightForLife.UI
 
         private void StartGameWithRole(PlayerRole role)
         {
-            // Configure GameManager
+            // Configure GameManager with the map the player selected.
             if (GameManager.Instance != null)
             {
                 GameManager.Instance.SetRole(role);
-                GameManager.Instance.SetMap(GAMEPLAY_SCENE);
+                GameManager.Instance.SetMap(selectedMapScene);
             }
 
             // Show loading screen and begin async load
             SetAllPanelsInactive();
-            StartCoroutine(LoadSceneAsync(GAMEPLAY_SCENE));
+            StartCoroutine(LoadSceneAsync(selectedMapScene));
         }
 
         // ===================== LOADING SCREEN =====================
@@ -322,6 +376,171 @@ namespace FightForLife.UI
             if (comingSoonPanel != null) comingSoonPanel.SetActive(false);
             if (roleSelectPanel != null) roleSelectPanel.SetActive(false);
             if (loadingPanel != null) loadingPanel.SetActive(false);
+            if (mapSelectPanel != null) mapSelectPanel.SetActive(false);
+        }
+
+        // ===================== MAP SELECT SCREEN =====================
+
+        private void BuildMapSelectPanel()
+        {
+            mapSelectPanel = new GameObject("MapSelectPanel");
+            mapSelectPanel.transform.SetParent(transform, false);
+
+            var rt = mapSelectPanel.AddComponent<RectTransform>();
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
+
+            var bg = mapSelectPanel.AddComponent<Image>();
+            bg.color = new Color(0.03f, 0.06f, 0.1f, 0.95f);
+            bg.raycastTarget = true;
+
+            // Title
+            var titleObj = new GameObject("Title");
+            titleObj.transform.SetParent(mapSelectPanel.transform, false);
+            var titleRt = titleObj.AddComponent<RectTransform>();
+            titleRt.anchoredPosition = new Vector2(0, 350);
+            titleRt.sizeDelta = new Vector2(800, 70);
+            var titleTmp = titleObj.AddComponent<TextMeshProUGUI>();
+            titleTmp.text = "SELECT MAP";
+            titleTmp.fontSize = 48;
+            titleTmp.color = TEXT_WHITE;
+            titleTmp.fontStyle = FontStyles.Bold;
+            titleTmp.alignment = TextAlignmentOptions.Center;
+
+            // Subtitle
+            var subObj = new GameObject("Subtitle");
+            subObj.transform.SetParent(mapSelectPanel.transform, false);
+            var subRt = subObj.AddComponent<RectTransform>();
+            subRt.anchoredPosition = new Vector2(0, 300);
+            subRt.sizeDelta = new Vector2(800, 40);
+            var subTmp = subObj.AddComponent<TextMeshProUGUI>();
+            subTmp.text = "Choose the region you want to save";
+            subTmp.fontSize = 20;
+            subTmp.color = TEXT_GRAY;
+            subTmp.fontStyle = FontStyles.Italic;
+            subTmp.alignment = TextAlignmentOptions.Center;
+
+            // Island Flood card (left)
+            CreateMapCard(mapSelectPanel.transform,
+                "IslandFloodCard",
+                new Vector2(-260, 0),
+                "ISLAND FLOOD",
+                "The original flooded village.\nNavigate streets, ring the bell,\nand escort civilians to high ground.",
+                new Color(0.2f, 0.5f, 0.85f, 1f),
+                OnMapIslandFloodClicked);
+
+            // Island Flood M card (right)
+            CreateMapCard(mapSelectPanel.transform,
+                "IslandFloodMCard",
+                new Vector2(260, 0),
+                "ISLAND FLOOD M",
+                "The mountainous variant.\nHigher terrain, different hazards,\nand an alternate mission routing.",
+                new Color(0.9f, 0.5f, 0.1f, 1f),
+                OnMapIslandFloodMClicked);
+
+            // Back button
+            var backObj = new GameObject("BackButton");
+            backObj.transform.SetParent(mapSelectPanel.transform, false);
+            var backRt = backObj.AddComponent<RectTransform>();
+            backRt.anchoredPosition = new Vector2(0, -400);
+            backRt.sizeDelta = new Vector2(200, 50);
+            var backImg = backObj.AddComponent<Image>();
+            backImg.color = new Color(0.15f, 0.2f, 0.3f, 0.9f);
+            var backBtn = backObj.AddComponent<Button>();
+            backBtn.targetGraphic = backImg;
+            var backTxtObj = new GameObject("Text");
+            backTxtObj.transform.SetParent(backObj.transform, false);
+            var backTxtRt = backTxtObj.AddComponent<RectTransform>();
+            backTxtRt.anchorMin = Vector2.zero;
+            backTxtRt.anchorMax = Vector2.one;
+            backTxtRt.offsetMin = Vector2.zero;
+            backTxtRt.offsetMax = Vector2.zero;
+            var backTxt = backTxtObj.AddComponent<TextMeshProUGUI>();
+            backTxt.text = "BACK";
+            backTxt.fontSize = 20;
+            backTxt.color = TEXT_WHITE;
+            backTxt.fontStyle = FontStyles.Bold;
+            backTxt.alignment = TextAlignmentOptions.Center;
+            backBtn.onClick.AddListener(OnBackClicked);
+
+            mapSelectPanel.SetActive(false);
+        }
+
+        private void CreateMapCard(Transform parent, string name, Vector2 pos, string title,
+                                    string description, Color accent, UnityEngine.Events.UnityAction onClick)
+        {
+            var card = new GameObject(name);
+            card.transform.SetParent(parent, false);
+            var rt = card.AddComponent<RectTransform>();
+            rt.anchoredPosition = pos;
+            rt.sizeDelta = new Vector2(450, 520);
+            var cardBg = card.AddComponent<Image>();
+            cardBg.color = new Color(0.08f, 0.12f, 0.18f, 0.95f);
+
+            // Accent stripe at top
+            var stripeObj = new GameObject("AccentStripe");
+            stripeObj.transform.SetParent(card.transform, false);
+            var stripeRt = stripeObj.AddComponent<RectTransform>();
+            stripeRt.anchorMin = new Vector2(0, 1);
+            stripeRt.anchorMax = new Vector2(1, 1);
+            stripeRt.pivot = new Vector2(0.5f, 1f);
+            stripeRt.anchoredPosition = Vector2.zero;
+            stripeRt.sizeDelta = new Vector2(0, 8);
+            var stripeImg = stripeObj.AddComponent<Image>();
+            stripeImg.color = accent;
+
+            // Title
+            var titleObj = new GameObject("CardTitle");
+            titleObj.transform.SetParent(card.transform, false);
+            var titleRt = titleObj.AddComponent<RectTransform>();
+            titleRt.anchoredPosition = new Vector2(0, 170);
+            titleRt.sizeDelta = new Vector2(420, 60);
+            var titleTmp = titleObj.AddComponent<TextMeshProUGUI>();
+            titleTmp.text = title;
+            titleTmp.fontSize = 32;
+            titleTmp.color = TEXT_WHITE;
+            titleTmp.fontStyle = FontStyles.Bold;
+            titleTmp.alignment = TextAlignmentOptions.Center;
+
+            // Description
+            var descObj = new GameObject("CardDesc");
+            descObj.transform.SetParent(card.transform, false);
+            var descRt = descObj.AddComponent<RectTransform>();
+            descRt.anchoredPosition = new Vector2(0, 40);
+            descRt.sizeDelta = new Vector2(400, 200);
+            var descTmp = descObj.AddComponent<TextMeshProUGUI>();
+            descTmp.text = description;
+            descTmp.fontSize = 18;
+            descTmp.color = TEXT_GRAY;
+            descTmp.alignment = TextAlignmentOptions.Center;
+
+            // Select button
+            var btnObj = new GameObject("SelectButton");
+            btnObj.transform.SetParent(card.transform, false);
+            var btnRt = btnObj.AddComponent<RectTransform>();
+            btnRt.anchoredPosition = new Vector2(0, -180);
+            btnRt.sizeDelta = new Vector2(300, 55);
+            var btnImg = btnObj.AddComponent<Image>();
+            btnImg.color = accent;
+            var btn = btnObj.AddComponent<Button>();
+            btn.targetGraphic = btnImg;
+            btn.onClick.AddListener(onClick);
+
+            var btnTxtObj = new GameObject("Text");
+            btnTxtObj.transform.SetParent(btnObj.transform, false);
+            var btnTxtRt = btnTxtObj.AddComponent<RectTransform>();
+            btnTxtRt.anchorMin = Vector2.zero;
+            btnTxtRt.anchorMax = Vector2.one;
+            btnTxtRt.offsetMin = Vector2.zero;
+            btnTxtRt.offsetMax = Vector2.zero;
+            var btnTxt = btnTxtObj.AddComponent<TextMeshProUGUI>();
+            btnTxt.text = "PLAY THIS MAP";
+            btnTxt.fontSize = 22;
+            btnTxt.color = TEXT_WHITE;
+            btnTxt.fontStyle = FontStyles.Bold;
+            btnTxt.alignment = TextAlignmentOptions.Center;
         }
     }
 }

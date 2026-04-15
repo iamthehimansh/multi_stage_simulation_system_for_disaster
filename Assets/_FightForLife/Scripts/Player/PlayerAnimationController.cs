@@ -16,6 +16,7 @@ namespace FightForLife.Player
         private static readonly int HashSpeed = Animator.StringToHash("Speed");
         private static readonly int HashIsGrounded = Animator.StringToHash("IsGrounded");
         private static readonly int HashIsCrouching = Animator.StringToHash("IsCrouching");
+        private static readonly int HashIsSwimming = Animator.StringToHash("IsSwimming");
 
         private PlayerController pc;
 
@@ -38,22 +39,29 @@ namespace FightForLife.Player
         {
             if (animator == null || pc == null) return;
 
-            // Use raw input from PlayerController (not transformed by camera)
-            // This gives the correct directional animation: W=forward, A=left, D=right
+            // Use actual movement speed to drive animations.
+            // This ensures the player stops animating when blocked by a wall/tree.
+            float actualSpeed = pc.CurrentSpeed;
+            bool isActuallyMoving = actualSpeed > 0.15f;
+
             float inputX = pc.InputX;
             float inputZ = pc.InputZ;
 
             Vector2 input = new Vector2(inputX, inputZ);
             if (input.magnitude > 1f) input.Normalize();
 
-            // Dead zone - snap to zero when input is negligible to prevent idle walking
-            if (input.magnitude < 0.05f)
+            // If blocked by collision (input but no movement), zero out animation
+            if (!isActuallyMoving)
                 input = Vector2.zero;
 
             animator.SetFloat(HashMoveX, input.x, dampTime, Time.deltaTime);
             animator.SetFloat(HashMoveZ, input.y, dampTime, Time.deltaTime);
-            animator.SetFloat(HashSpeed, input.magnitude, dampTime, Time.deltaTime);
-            animator.SetBool(HashIsGrounded, pc.IsGrounded);
+            animator.SetFloat(HashSpeed, isActuallyMoving ? input.magnitude : 0f, dampTime, Time.deltaTime);
+            // In water (wading or swimming) → treat as swimming for animation
+            // In water (wading) → force grounded so Jump doesn't trigger
+            bool inWater = pc.IsSwimming || pc.IsDiving || pc.IsWading;
+            animator.SetBool(HashIsSwimming, inWater);
+            animator.SetBool(HashIsGrounded, inWater || pc.IsGrounded);
             animator.SetBool(HashIsCrouching, pc.IsCrouching);
         }
     }

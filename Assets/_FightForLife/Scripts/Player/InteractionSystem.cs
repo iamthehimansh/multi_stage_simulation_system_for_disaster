@@ -29,7 +29,9 @@ namespace FightForLife.Player
         [SerializeField] private float interactionRange = 3f;
         [SerializeField] private float pickupRange = 2.5f;
         [SerializeField] private LayerMask interactableMask = ~0;
-        [SerializeField] private float sphereCastRadius = 0.15f;
+        [SerializeField] private float sphereCastRadius = 0.6f;
+        [Tooltip("Height above player feet where the interaction sphere is cast from.")]
+        [SerializeField] private float castOriginHeight = 1.2f;
 
         [Header("References")]
         [SerializeField] private Transform cameraTransform;
@@ -91,19 +93,64 @@ namespace FightForLife.Player
             CurrentTargetObject = null;
             CurrentPrompt = string.Empty;
 
-            if (cameraTransform == null) return;
+            // Use OverlapSphere around the player so a third-person camera 6m behind
+            // the player doesn't put interactables out of the SphereCast's effective range.
+            // Among all interactables in radius, pick the one closest to the camera's view direction
+            // (so the player still "aims" at who they want to interact with).
+            Vector3 origin = transform.position + Vector3.up * castOriginHeight;
 
-            Ray ray = new Ray(cameraTransform.position, cameraTransform.forward);
-
-            if (Physics.SphereCast(ray, sphereCastRadius, out RaycastHit hit, interactionRange, interactableMask))
+            var hits = Physics.OverlapSphere(origin, interactionRange, interactableMask, QueryTriggerInteraction.Collide);
+            if (hits.Length == 0)
             {
-                IInteractable interactable = hit.collider.GetComponentInParent<IInteractable>();
-                if (interactable != null && interactable.CanInteract())
+                if (isHolding) CancelHold();
+                return;
+            }
+
+            Vector3 viewDir = cameraTransform != null ? cameraTransform.forward : transform.forward;
+            viewDir.y = 0f;
+            if (viewDir.sqrMagnitude < 0.0001f) viewDir = transform.forward;
+            viewDir.Normalize();
+
+            IInteractable best = null;
+            GameObject bestGo = null;
+            float bestScore = float.NegativeInfinity;
+
+            foreach (var col in hits)
+            {
+                if (col == null) continue;
+                var interactable = col.GetComponentInParent<IInteractable>();
+                if (interactable == null || !interactable.CanInteract()) continue;
+
+                Vector3 toTarget = col.bounds.center - origin;
+                float dist = toTarget.magnitude;
+                if (dist > interactionRange) continue;
+
+                Vector3 dirFlat = toTarget;
+                dirFlat.y = 0f;
+                if (dirFlat.sqrMagnitude < 0.0001f)
                 {
-                    CurrentTarget = interactable;
-                    CurrentTargetObject = hit.collider.gameObject;
-                    CurrentPrompt = interactable.GetPrompt();
+                    // Right on top of the player — accept it
+                    if (bestScore < 0f) { best = interactable; bestGo = col.gameObject; bestScore = 0f; }
+                    continue;
                 }
+                dirFlat.Normalize();
+
+                float dot = Vector3.Dot(dirFlat, viewDir); // -1 (behind) .. +1 (ahead)
+                // Score favors targets in front of the player and close
+                float score = dot - (dist / interactionRange) * 0.5f;
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = interactable;
+                    bestGo = col.gameObject;
+                }
+            }
+
+            if (best != null)
+            {
+                CurrentTarget = best;
+                CurrentTargetObject = bestGo;
+                CurrentPrompt = best.GetPrompt();
             }
 
             // Reset hold if target changed or lost

@@ -132,6 +132,12 @@ namespace FightForLife.UI
         private Color[] minimapClearPixels;
         private RectTransform minimapBorder;
         private bool minimapMaximized;
+        private RectTransform minimapLabelLayer;
+        private RectTransform minimapRouteLayer;
+        private RectTransform minimapLegend;
+        private class MMIcon { public RectTransform root; public Image bg; public TextMeshProUGUI letter; }
+        private List<MMIcon> minimapIconPool = new List<MMIcon>();
+        private List<Image> minimapRouteDotPool = new List<Image>();
 
         // Compass
         private RectTransform compassContainer;
@@ -641,6 +647,27 @@ namespace FightForLife.UI
             minimapTex.SetPixels(minimapClearPixels);
             minimapTex.Apply();
 
+            // Label overlay layer — children will be created/positioned per frame.
+            // Stretches to fill the inner panel so label coords are in inner-rect space.
+            var labelLayerGo = new GameObject("MinimapLabels", typeof(RectTransform));
+            labelLayerGo.transform.SetParent(inner, false);
+            minimapLabelLayer = labelLayerGo.GetComponent<RectTransform>();
+            minimapLabelLayer.anchorMin = Vector2.zero;
+            minimapLabelLayer.anchorMax = Vector2.one;
+            minimapLabelLayer.offsetMin = Vector2.zero;
+            minimapLabelLayer.offsetMax = Vector2.zero;
+            minimapLabelLayer.pivot = new Vector2(0.5f, 0.5f);
+
+            // Route layer sits ABOVE the icons (later child = drawn last = on top)
+            var routeLayerGo = new GameObject("MinimapRoute", typeof(RectTransform));
+            routeLayerGo.transform.SetParent(inner, false);
+            minimapRouteLayer = routeLayerGo.GetComponent<RectTransform>();
+            minimapRouteLayer.anchorMin = Vector2.zero;
+            minimapRouteLayer.anchorMax = Vector2.one;
+            minimapRouteLayer.offsetMin = Vector2.zero;
+            minimapRouteLayer.offsetMax = Vector2.zero;
+            minimapRouteLayer.pivot = new Vector2(0.5f, 0.5f);
+
             // Player arrow in center
             playerArrow = CreateImage("PlayerArrow", inner,
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
@@ -656,6 +683,8 @@ namespace FightForLife.UI
                 new Vector2(-4f, 0), new Vector2(20, 14), "E", 10f, Color.white, TextAlignmentOptions.Center);
             CreateTMP("MM_W", inner, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f),
                 new Vector2(4f, 0), new Vector2(20, 14), "W", 10f, Color.white, TextAlignmentOptions.Center);
+
+            CreateMinimapLegend(border);
         }
 
         private void SetupMinimapCamera()
@@ -1057,25 +1086,45 @@ namespace FightForLife.UI
                 return;
             }
 
-            // Mission name
+            // Mission name shows count when multiple are active
             var allMissions = missionManager.GetActiveMissions();
-            string nameStr = active.missionName;
-            if (allMissions.Count > 1)
-                nameStr += $" (+{allMissions.Count - 1} more)";
-            missionNameText.text = nameStr;
+            missionNameText.text = allMissions.Count > 1
+                ? $"ACTIVE MISSIONS ({allMissions.Count})"
+                : active.missionName;
 
-            // Objective
-            var obj = active.GetActiveObjective();
-            if (obj != null)
+            // Build a multi-line objective list — one row per active mission
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < allMissions.Count; i++)
             {
-                missionObjectiveText.text = obj.requiredCount > 1
-                    ? $"{obj.description} {obj.currentCount}/{obj.requiredCount}"
-                    : obj.description;
+                var m = allMissions[i];
+                var mObj = m.GetActiveObjective();
+                string title = m.missionName;
+                string body;
+                if (mObj != null)
+                {
+                    body = mObj.requiredCount > 1
+                        ? $"{mObj.description} {mObj.currentCount}/{mObj.requiredCount}"
+                        : mObj.description;
+                }
+                else
+                {
+                    body = m.description;
+                }
+
+                // Per-mission play hint (short version)
+                string hint = GetMissionHint(m.missionId);
+                Color titleCol = m.type == MissionType.Primary ? COL_SCORE : new Color(0.7f, 0.85f, 1f);
+                string colHex = ColorUtility.ToHtmlStringRGB(titleCol);
+
+                if (allMissions.Count > 1)
+                    sb.Append($"<color=#{colHex}><b>{title}</b></color>\n");
+                sb.Append($"<size=85%>\u25B8 {body}</size>");
+                if (!string.IsNullOrEmpty(hint))
+                    sb.Append($"\n<size=70%><color=#BBBBBB>{hint}</color></size>");
+                if (i < allMissions.Count - 1)
+                    sb.Append("\n\n");
             }
-            else
-            {
-                missionObjectiveText.text = active.description;
-            }
+            missionObjectiveText.text = sb.ToString();
 
             // Timer
             float remaining = missionManager.GetMissionTimeRemaining(active);
@@ -1185,35 +1234,58 @@ namespace FightForLife.UI
 
         private int minimapFrameCounter;
         private const float MINIMAP_VIEW_RANGE = 200f; // 200m radius around player
-        private List<Vector3> buildingPositions;
+        private struct NamedPoi { public Vector3 pos; public string name; }
+        private List<NamedPoi> buildingPositions;
         private float buildingCacheTime;
 
         private void RefreshBuildingCache()
         {
-            buildingPositions = new List<Vector3>();
+            buildingPositions = new List<NamedPoi>();
+            var seen = new HashSet<Transform>();
+
             // Find by tag if available
             try
             {
                 var byTag = GameObject.FindGameObjectsWithTag("Building");
-                foreach (var go in byTag) buildingPositions.Add(go.transform.position);
+                foreach (var go in byTag)
+                {
+                    if (go == null || !seen.Add(go.transform)) continue;
+                    buildingPositions.Add(new NamedPoi { pos = go.transform.position, name = PrettifyName(go.name) });
+                }
             }
             catch { }
-            // Also find by common name patterns (no tag required)
-            string[] keywords = { "House", "Building", "Hut", "Temple", "Barn", "Shed", "Cabin", "Tower" };
+
+            // Find by common name patterns (no tag required)
+            string[] keywords = { "House", "Building", "Hut", "Temple", "Barn", "Shed", "Cabin", "Tower",
+                                   "Church", "Watchtower", "Well", "ExtractionPoint", "RescueZone", "Checkpoint",
+                                   "Outhouse", "Lighthouse", "Bridge", "Kiosk", "BLD_", "Struct_", "Guard" };
             var allRoots = GameObject.FindObjectsByType<Transform>(FindObjectsSortMode.None);
             foreach (var t in allRoots)
             {
                 if (t == null || t.name == null) continue;
+                if (!seen.Add(t)) continue;
                 foreach (var k in keywords)
                 {
                     if (t.name.IndexOf(k, System.StringComparison.OrdinalIgnoreCase) >= 0)
                     {
-                        buildingPositions.Add(t.position);
+                        buildingPositions.Add(new NamedPoi { pos = t.position, name = PrettifyName(t.name) });
                         break;
                     }
                 }
             }
             buildingCacheTime = Time.time;
+        }
+
+        private static string PrettifyName(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return raw;
+            // Strip "(Clone)" suffix and common prefixes, leave the human-readable bit
+            int idx = raw.IndexOf('(');
+            if (idx > 0) raw = raw.Substring(0, idx).Trim();
+            // Strip _LOD0 etc.
+            idx = raw.IndexOf("_LOD");
+            if (idx > 0) raw = raw.Substring(0, idx);
+            return raw;
         }
 
         private void DrawBuildingDots(float playerX, float playerZ, float pixelToWorld, int size)
@@ -1223,10 +1295,10 @@ namespace FightForLife.UI
                 RefreshBuildingCache();
 
             Color buildingColor = new Color(0.55f, 0.4f, 0.25f);
-            foreach (var pos in buildingPositions)
+            foreach (var b in buildingPositions)
             {
-                float dx = pos.x - playerX;
-                float dz = pos.z - playerZ;
+                float dx = b.pos.x - playerX;
+                float dz = b.pos.z - playerZ;
                 if (Mathf.Abs(dx) > MINIMAP_VIEW_RANGE || Mathf.Abs(dz) > MINIMAP_VIEW_RANGE) continue;
                 int px = Mathf.Clamp(Mathf.RoundToInt((dx / pixelToWorld) + size / 2f), 1, size - 2);
                 int py = Mathf.Clamp(Mathf.RoundToInt((dz / pixelToWorld) + size / 2f), 1, size - 2);
@@ -1263,10 +1335,16 @@ namespace FightForLife.UI
                     if (terrain != null)
                     {
                         float h = terrain.SampleHeight(new Vector3(worldX, 0, worldZ));
-                        if (h < 2f) c = new Color(0.15f, 0.3f, 0.5f); // Water
-                        else if (h < 10f) c = new Color(0.75f, 0.7f, 0.5f); // Sand/beach
-                        else if (h < 30f) c = new Color(0.3f, 0.5f, 0.2f); // Grass
-                        else if (h < 80f) c = new Color(0.2f, 0.4f, 0.15f); // Hills
+                        float worldH = h + terrain.transform.position.y;
+                        float waterY = floodManager != null ? floodManager.WaterLevel : -9999f;
+                        if (worldH < waterY)
+                            c = new Color(0.15f, 0.3f, 0.5f); // Below water
+                        else if (worldH < waterY + 3f)
+                            c = new Color(0.75f, 0.7f, 0.5f); // Near waterline / beach
+                        else if (h < 30f)
+                            c = new Color(0.3f, 0.5f, 0.2f); // Grass
+                        else if (h < 80f)
+                            c = new Color(0.2f, 0.4f, 0.15f); // Hills
                         else c = new Color(0.4f, 0.35f, 0.3f); // Mountains
                     }
                     else
@@ -1337,12 +1415,17 @@ namespace FightForLife.UI
                 }
             }
 
-            // Draw mission waypoint + route line from player to waypoint
-            if (missionManager != null && missionManager.ActiveMission != null)
+            // Draw mission waypoint(s) + route line from player to each active mission's waypoint
+            if (missionManager != null)
             {
-                var wp = missionManager.ActiveMission.waypointPosition;
-                if (wp != Vector3.zero)
+                var activeMissions = missionManager.GetActiveMissions();
+                bool isFirst = true;
+                foreach (var m in activeMissions)
                 {
+                    if (m == null) continue;
+                    var wp = m.waypointPosition;
+                    if (wp == Vector3.zero) continue;
+
                     float dx = wp.x - playerX;
                     float dz = wp.z - playerZ;
                     // Clamp to edge if outside range
@@ -1356,23 +1439,31 @@ namespace FightForLife.UI
                     int wpx = Mathf.Clamp(Mathf.RoundToInt((dx / pixelToWorld) + size / 2f), 3, size - 4);
                     int wpy = Mathf.Clamp(Mathf.RoundToInt((dz / pixelToWorld) + size / 2f), 3, size - 4);
 
-                    // Route line from player center to waypoint (dashed)
-                    Color routeColor = new Color(1f, 0.85f, 0.2f, 1f);
-                    DrawDashedLine(size / 2, size / 2, wpx, wpy, routeColor, 4, 3);
+                    // Primary missions get gold, secondaries get cyan
+                    bool primary = m.type == MissionType.Primary;
+                    Color markerColor = primary ? new Color(1f, 0.85f, 0f) : new Color(0.4f, 0.85f, 1f);
+                    Color markerDark = primary ? new Color(0.6f, 0.45f, 0f) : new Color(0.15f, 0.45f, 0.6f);
 
-                    // Gold cross marker at waypoint
-                    Color gold = new Color(1f, 0.85f, 0f);
+                    // Only draw the route line for the first mission, otherwise the minimap turns into spaghetti
+                    if (isFirst)
+                    {
+                        Color routeColor = markerColor;
+                        routeColor.a = 1f;
+                        DrawDashedLine(size / 2, size / 2, wpx, wpy, routeColor, 4, 3);
+                        isFirst = false;
+                    }
+
+                    // Cross marker at waypoint
                     for (int ox = -3; ox <= 3; ox++)
                     {
-                        minimapTex.SetPixel(wpx + ox, wpy, gold);
-                        minimapTex.SetPixel(wpx, wpy + ox, gold);
+                        minimapTex.SetPixel(wpx + ox, wpy, markerColor);
+                        minimapTex.SetPixel(wpx, wpy + ox, markerColor);
                     }
-                    // Outline the gold cross with darker gold for visibility
-                    Color goldDark = new Color(0.6f, 0.45f, 0f);
-                    minimapTex.SetPixel(wpx + 4, wpy, goldDark);
-                    minimapTex.SetPixel(wpx - 4, wpy, goldDark);
-                    minimapTex.SetPixel(wpx, wpy + 4, goldDark);
-                    minimapTex.SetPixel(wpx, wpy - 4, goldDark);
+                    // Outline the cross with a darker shade for visibility
+                    minimapTex.SetPixel(wpx + 4, wpy, markerDark);
+                    minimapTex.SetPixel(wpx - 4, wpy, markerDark);
+                    minimapTex.SetPixel(wpx, wpy + 4, markerDark);
+                    minimapTex.SetPixel(wpx, wpy - 4, markerDark);
                 }
             }
 
@@ -1390,6 +1481,316 @@ namespace FightForLife.UI
             // Rotate player arrow to match player facing direction
             if (playerArrow != null && playerTransform != null)
                 playerArrow.rectTransform.localRotation = Quaternion.Euler(0, 0, -playerTransform.eulerAngles.y);
+
+            UpdateMinimapLabels(playerX, playerZ);
+        }
+
+        // ── Minimap icon overlay ──────────────────────────────────────────
+        // Each POI is shown as a small colored icon (single letter in a colored square)
+        // classified by type. A legend in the corner lists every type.
+
+        private struct PoiIcon { public string typeName; public char letter; public Color color; }
+
+        private static PoiIcon ClassifyBuilding(string name)
+        {
+            string n = (name ?? "").ToLowerInvariant();
+            if (n.Contains("temple") && n.Contains("bell")) return new PoiIcon { typeName = "Bell",      letter = 'B', color = new Color(1f, 0.85f, 0.1f) };
+            if (n.Contains("temple"))                       return new PoiIcon { typeName = "Temple",    letter = 'T', color = new Color(0.85f, 0.4f, 1f) };
+            if (n.Contains("church"))                       return new PoiIcon { typeName = "Church",    letter = 'C', color = new Color(1f, 1f, 1f) };
+            if (n.Contains("watchtower") || n.Contains("tower"))
+                                                            return new PoiIcon { typeName = "Tower",     letter = 'W', color = new Color(1f, 0.55f, 0.1f) };
+            if (n.Contains("barn"))                         return new PoiIcon { typeName = "Barn",      letter = 'N', color = new Color(0.85f, 0.6f, 0.25f) };
+            if (n.Contains("cabin"))                        return new PoiIcon { typeName = "Cabin",     letter = 'K', color = new Color(0.5f, 0.85f, 1f) };
+            if (n.Contains("guardhouse"))                   return new PoiIcon { typeName = "Guard",     letter = 'G', color = new Color(0.6f, 0.6f, 0.7f) };
+            if (n.Contains("outhouse"))                     return new PoiIcon { typeName = "Outhouse",  letter = 'O', color = new Color(0.6f, 0.5f, 0.4f) };
+            if (n.Contains("well"))                         return new PoiIcon { typeName = "Well",      letter = 'L', color = new Color(0.3f, 0.7f, 1f) };
+            if (n.Contains("lighthouse"))                   return new PoiIcon { typeName = "Lighthouse",letter = 'I', color = new Color(1f, 0.9f, 0.4f) };
+            if (n.Contains("bridge") || n.Contains("bld_")) return new PoiIcon { typeName = "Bridge",   letter = 'B', color = new Color(0.5f, 0.5f, 0.55f) };
+            if (n.Contains("kiosk"))                        return new PoiIcon { typeName = "Kiosk",     letter = 'K', color = new Color(0.7f, 0.6f, 0.5f) };
+            if (n.Contains("rescuezone"))                   return new PoiIcon { typeName = "Rescue",    letter = 'R', color = new Color(0.2f, 1f, 0.2f) };
+            if (n.Contains("checkpoint"))                   return new PoiIcon { typeName = "Checkpoint",letter = 'P', color = new Color(0.9f, 0.9f, 0.2f) };
+            if (n.Contains("extraction"))                   return new PoiIcon { typeName = "Extraction",letter = 'X', color = new Color(0.2f, 1f, 0.2f) };
+            return new PoiIcon { typeName = "House", letter = 'H', color = new Color(0.7f, 0.5f, 0.3f) };
+        }
+
+        private static PoiIcon ClassifyMission(MissionData m)
+        {
+            switch (m.missionId)
+            {
+                case "VM01": return new PoiIcon { typeName = "Bell",       letter = 'B', color = new Color(1f, 0.85f, 0.1f) };
+                case "VM02": return new PoiIcon { typeName = "Civilians",  letter = 'V', color = new Color(1f, 0.5f, 0.1f) };
+                case "VM03": return new PoiIcon { typeName = "Bridge",     letter = 'D', color = new Color(0.85f, 0.6f, 0.3f) };
+                case "VM04": return new PoiIcon { typeName = "Cellar",     letter = 'C', color = new Color(0.3f, 0.6f, 1f) };
+                case "VM05": return new PoiIcon { typeName = "Extraction", letter = 'X', color = new Color(0.2f, 1f, 0.2f) };
+                case "VS01": return new PoiIcon { typeName = "Clinic",     letter = '+', color = new Color(1f, 1f, 1f) };
+                case "VS02": return new PoiIcon { typeName = "Barn",       letter = 'N', color = new Color(0.85f, 0.6f, 0.25f) };
+                case "VS05": return new PoiIcon { typeName = "RadioTower", letter = 'S', color = new Color(0.4f, 0.85f, 1f) };
+                default:     return new PoiIcon { typeName = "Mission",    letter = 'M', color = new Color(1f, 0.85f, 0.1f) };
+            }
+        }
+
+        // Legend types — every kind of icon that can appear on the minimap
+        private static readonly PoiIcon[] LEGEND_ITEMS = new PoiIcon[]
+        {
+            new PoiIcon { typeName = "House",      letter = 'H', color = new Color(0.7f, 0.5f, 0.3f) },
+            new PoiIcon { typeName = "Temple",     letter = 'T', color = new Color(0.85f, 0.4f, 1f) },
+            new PoiIcon { typeName = "Church",     letter = 'C', color = new Color(1f, 1f, 1f) },
+            new PoiIcon { typeName = "Tower",      letter = 'W', color = new Color(1f, 0.55f, 0.1f) },
+            new PoiIcon { typeName = "Barn",       letter = 'N', color = new Color(0.85f, 0.6f, 0.25f) },
+            new PoiIcon { typeName = "Cabin",      letter = 'K', color = new Color(0.5f, 0.85f, 1f) },
+            new PoiIcon { typeName = "Guard",      letter = 'G', color = new Color(0.6f, 0.6f, 0.7f) },
+            new PoiIcon { typeName = "Well",       letter = 'L', color = new Color(0.3f, 0.7f, 1f) },
+            new PoiIcon { typeName = "Rescue",     letter = 'R', color = new Color(0.2f, 1f, 0.2f) },
+            new PoiIcon { typeName = "Checkpoint", letter = 'P', color = new Color(0.9f, 0.9f, 0.2f) },
+            new PoiIcon { typeName = "Mission",    letter = 'M', color = new Color(1f, 0.85f, 0.1f) },
+            new PoiIcon { typeName = "Extraction", letter = 'X', color = new Color(0.2f, 1f, 0.2f) },
+        };
+
+        private void UpdateMinimapLabels(float playerX, float playerZ)
+        {
+            if (minimapLabelLayer == null) return;
+
+            int used = 0;
+            float halfW = minimapLabelLayer.rect.width * 0.5f;
+            float halfH = minimapLabelLayer.rect.height * 0.5f;
+
+            // Buildings / POIs
+            if (buildingPositions != null)
+            {
+                foreach (var b in buildingPositions)
+                {
+                    if (string.IsNullOrEmpty(b.name)) continue;
+                    float dx = b.pos.x - playerX;
+                    float dz = b.pos.z - playerZ;
+                    if (Mathf.Abs(dx) > MINIMAP_VIEW_RANGE || Mathf.Abs(dz) > MINIMAP_VIEW_RANGE) continue;
+                    float lx = (dx / MINIMAP_VIEW_RANGE) * halfW;
+                    float ly = (dz / MINIMAP_VIEW_RANGE) * halfH;
+                    var ic = ClassifyBuilding(b.name);
+                    PlaceMinimapIcon(used++, lx, ly, ic.letter, ic.color, false);
+                }
+            }
+
+            // Mission waypoints (active missions only) - bigger, brighter, with white border
+            // Also draw a UI dashed route line OVER everything for the first active mission.
+            int dotsUsed = 0;
+            bool drewRoute = false;
+            if (missionManager != null)
+            {
+                var active = missionManager.GetActiveMissions();
+                foreach (var m in active)
+                {
+                    if (m == null || m.waypointPosition == Vector3.zero) continue;
+                    float dx = m.waypointPosition.x - playerX;
+                    float dz = m.waypointPosition.z - playerZ;
+                    float maxR = MINIMAP_VIEW_RANGE * 0.92f;
+                    if (Mathf.Abs(dx) > maxR || Mathf.Abs(dz) > maxR)
+                    {
+                        float scale = maxR / Mathf.Max(Mathf.Abs(dx), Mathf.Abs(dz));
+                        dx *= scale; dz *= scale;
+                    }
+                    float lx = (dx / MINIMAP_VIEW_RANGE) * halfW;
+                    float ly = (dz / MINIMAP_VIEW_RANGE) * halfH;
+                    var ic = ClassifyMission(m);
+                    PlaceMinimapIcon(used++, lx, ly, ic.letter, ic.color, true);
+
+                    // Draw UI dashed route from player center to first mission waypoint
+                    if (!drewRoute)
+                    {
+                        Color routeCol = ic.color;
+                        routeCol.a = 1f;
+                        dotsUsed = DrawRouteDots(0f, 0f, lx, ly, routeCol);
+                        drewRoute = true;
+                    }
+                }
+            }
+
+            // Hide unused pooled icons
+            for (int i = used; i < minimapIconPool.Count; i++)
+            {
+                if (minimapIconPool[i] != null && minimapIconPool[i].root != null)
+                    minimapIconPool[i].root.gameObject.SetActive(false);
+            }
+            // Hide unused route dots
+            for (int i = dotsUsed; i < minimapRouteDotPool.Count; i++)
+            {
+                if (minimapRouteDotPool[i] != null)
+                    minimapRouteDotPool[i].gameObject.SetActive(false);
+            }
+        }
+
+        // Plots a dashed line of small UI dots from (sx,sy) to (ex,ey) in the route layer.
+        // Returns the number of dots used so callers can hide leftovers.
+        private int DrawRouteDots(float sx, float sy, float ex, float ey, Color color)
+        {
+            if (minimapRouteLayer == null) return 0;
+            float dx = ex - sx;
+            float dy = ey - sy;
+            float dist = Mathf.Sqrt(dx * dx + dy * dy);
+            if (dist < 1f) return 0;
+
+            const float spacing = 7f; // gap between dot centers
+            int count = Mathf.Clamp(Mathf.FloorToInt(dist / spacing), 1, 60);
+            float stepX = dx / count;
+            float stepY = dy / count;
+
+            for (int i = 0; i < count; i++)
+            {
+                // Skip every other dot for the dashed look
+                if ((i & 1) == 0) continue;
+                float px = sx + stepX * i;
+                float py = sy + stepY * i;
+                EnsureRouteDot(i / 2, px, py, color);
+            }
+            return Mathf.CeilToInt(count / 2f);
+        }
+
+        private void EnsureRouteDot(int index, float lx, float ly, Color color)
+        {
+            Image dot;
+            if (index < minimapRouteDotPool.Count)
+            {
+                dot = minimapRouteDotPool[index];
+                if (dot == null) return;
+                if (!dot.gameObject.activeSelf) dot.gameObject.SetActive(true);
+            }
+            else
+            {
+                var go = new GameObject("MMRouteDot_" + index, typeof(RectTransform));
+                go.transform.SetParent(minimapRouteLayer, false);
+                var rt = go.GetComponent<RectTransform>();
+                rt.anchorMin = new Vector2(0.5f, 0.5f);
+                rt.anchorMax = new Vector2(0.5f, 0.5f);
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.sizeDelta = new Vector2(4f, 4f);
+                dot = go.AddComponent<Image>();
+                dot.sprite = GetWhiteSprite();
+                dot.raycastTarget = false;
+                minimapRouteDotPool.Add(dot);
+            }
+            dot.color = color;
+            dot.rectTransform.anchoredPosition = new Vector2(lx, ly);
+        }
+
+        private void PlaceMinimapIcon(int index, float localX, float localY, char letter, Color color, bool isMission)
+        {
+            MMIcon icon;
+            if (index < minimapIconPool.Count)
+            {
+                icon = minimapIconPool[index];
+                if (icon == null || icon.root == null) return;
+                if (!icon.root.gameObject.activeSelf) icon.root.gameObject.SetActive(true);
+            }
+            else
+            {
+                var go = new GameObject("MMIcon_" + index, typeof(RectTransform));
+                go.transform.SetParent(minimapLabelLayer, false);
+                var root = go.GetComponent<RectTransform>();
+                root.anchorMin = new Vector2(0.5f, 0.5f);
+                root.anchorMax = new Vector2(0.5f, 0.5f);
+                root.pivot = new Vector2(0.5f, 0.5f);
+
+                var bg = go.AddComponent<Image>();
+                bg.sprite = GetWhiteSprite();
+                bg.raycastTarget = false;
+
+                var letterGo = new GameObject("L", typeof(RectTransform));
+                letterGo.transform.SetParent(go.transform, false);
+                var lrt = letterGo.GetComponent<RectTransform>();
+                lrt.anchorMin = Vector2.zero;
+                lrt.anchorMax = Vector2.one;
+                lrt.offsetMin = Vector2.zero;
+                lrt.offsetMax = Vector2.zero;
+                var tmp = letterGo.AddComponent<TextMeshProUGUI>();
+                tmp.alignment = TextAlignmentOptions.Center;
+                tmp.color = Color.black;
+                tmp.fontStyle = FontStyles.Bold;
+                tmp.raycastTarget = false;
+                tmp.enableWordWrapping = false;
+
+                icon = new MMIcon { root = root, bg = bg, letter = tmp };
+                minimapIconPool.Add(icon);
+            }
+
+            float size = isMission ? 16f : 12f;
+            icon.root.sizeDelta = new Vector2(size, size);
+            icon.root.anchoredPosition = new Vector2(localX, localY);
+            icon.bg.color = color;
+            icon.letter.text = letter.ToString();
+            icon.letter.fontSize = isMission ? 11f : 9f;
+            // Mission icons get a thin white outline (simulated by a slightly larger image isn't worth it -
+            // just brighten the background color and pulse later if needed).
+        }
+
+        private void CreateMinimapLegend(Transform border)
+        {
+            // Legend panel anchored to the LEFT side of the minimap border, growing downward.
+            var panelGo = new GameObject("MinimapLegend", typeof(RectTransform));
+            panelGo.transform.SetParent(border, false);
+            var panel = panelGo.GetComponent<RectTransform>();
+            panel.anchorMin = new Vector2(0f, 1f);
+            panel.anchorMax = new Vector2(0f, 1f);
+            panel.pivot = new Vector2(1f, 1f);
+            panel.anchoredPosition = new Vector2(-6f, 0f);
+            float rowH = 14f;
+            float panelW = 90f;
+            float panelH = LEGEND_ITEMS.Length * rowH + 8f;
+            panel.sizeDelta = new Vector2(panelW, panelH);
+
+            var bg = panelGo.AddComponent<Image>();
+            bg.color = new Color(0f, 0f, 0f, 0.7f);
+            bg.raycastTarget = false;
+
+            for (int i = 0; i < LEGEND_ITEMS.Length; i++)
+            {
+                var item = LEGEND_ITEMS[i];
+                float yTop = -4f - i * rowH;
+
+                // Icon square
+                var iconGo = new GameObject("LegendIcon_" + i, typeof(RectTransform));
+                iconGo.transform.SetParent(panelGo.transform, false);
+                var irt = iconGo.GetComponent<RectTransform>();
+                irt.anchorMin = new Vector2(0f, 1f);
+                irt.anchorMax = new Vector2(0f, 1f);
+                irt.pivot = new Vector2(0f, 1f);
+                irt.anchoredPosition = new Vector2(4f, yTop);
+                irt.sizeDelta = new Vector2(11f, 11f);
+                var iimg = iconGo.AddComponent<Image>();
+                iimg.color = item.color;
+                iimg.sprite = GetWhiteSprite();
+                iimg.raycastTarget = false;
+
+                // Letter inside icon
+                var letterGo = new GameObject("L", typeof(RectTransform));
+                letterGo.transform.SetParent(iconGo.transform, false);
+                var lrt = letterGo.GetComponent<RectTransform>();
+                lrt.anchorMin = Vector2.zero; lrt.anchorMax = Vector2.one;
+                lrt.offsetMin = Vector2.zero; lrt.offsetMax = Vector2.zero;
+                var ltmp = letterGo.AddComponent<TextMeshProUGUI>();
+                ltmp.text = item.letter.ToString();
+                ltmp.alignment = TextAlignmentOptions.Center;
+                ltmp.color = Color.black;
+                ltmp.fontStyle = FontStyles.Bold;
+                ltmp.fontSize = 9f;
+                ltmp.raycastTarget = false;
+
+                // Type label
+                var nameGo = new GameObject("LegendName_" + i, typeof(RectTransform));
+                nameGo.transform.SetParent(panelGo.transform, false);
+                var nrt = nameGo.GetComponent<RectTransform>();
+                nrt.anchorMin = new Vector2(0f, 1f);
+                nrt.anchorMax = new Vector2(0f, 1f);
+                nrt.pivot = new Vector2(0f, 1f);
+                nrt.anchoredPosition = new Vector2(20f, yTop);
+                nrt.sizeDelta = new Vector2(panelW - 24f, 11f);
+                var ntmp = nameGo.AddComponent<TextMeshProUGUI>();
+                ntmp.text = item.typeName;
+                ntmp.alignment = TextAlignmentOptions.MidlineLeft;
+                ntmp.color = Color.white;
+                ntmp.fontSize = 9f;
+                ntmp.raycastTarget = false;
+            }
+
+            minimapLegend = panel;
         }
 
         // ═══════════════════════ EVENT HANDLERS ════════════════════════════
@@ -1423,44 +1824,54 @@ namespace FightForLife.UI
 
         private void OnMissionStarted(MissionData mission)
         {
-            ShowWarningBanner($"NEW MISSION: {mission.missionName}", COL_SCORE);
-            ShowMissionBriefing(mission);
+            // Queue the briefing — multiple missions can start in the same frame (phase change)
+            EnqueueBriefing(mission);
         }
 
         // Per-mission briefing with controls hints
-        private void ShowMissionBriefing(MissionData mission)
+        private static string GetMissionHint(string missionId)
         {
-            string controls;
-            switch (mission.missionId)
+            switch (missionId)
             {
-                case "VM01":
-                    controls = "Run to the temple (yellow marker on map). When near the BELL, HOLD [E] for 2 seconds to ring it.";
-                    break;
-                case "VM02":
-                    controls = "Find civilians around the village. Walk up to each one and HOLD [E] to rescue.";
-                    break;
-                case "VM03":
-                    controls = "Lead NPCs across the bridge. Approach each NPC and HOLD [E] to guide them.";
-                    break;
-                case "VM04":
-                    controls = "Dive into the cellar (HOLD [LEFT CTRL] to dive underwater). Find and rescue the trapped child.";
-                    break;
-                case "VM05":
-                    controls = "Sprint to the extraction point (yellow marker). HOLD [LEFT SHIFT] to sprint. Don't drown!";
-                    break;
-                default:
-                    controls = mission.description;
-                    break;
+                case "VM01": return "Run to the TEMPLE (gold marker). Stand next to the BELL and HOLD [E] for 2s to ring it.";
+                case "VM02": return "Find PANICKING CIVILIANS (yellow dots on minimap). Walk up to one and PRESS [E] when the prompt appears.";
+                case "VM03": return "Lead NPCs across the BRIDGE. PRESS [E] on each NPC, then walk toward the bridge with them following.";
+                case "VM04": return "Find the CELLAR ENTRANCE. HOLD [LEFT CTRL] to dive underwater. Reach and rescue the trapped child.";
+                case "VM05": return "Sprint to the EXTRACTION point (gold marker). HOLD [LEFT SHIFT] to sprint. Avoid the rising water!";
+                case "VS01": return "MEDIC RUN: Visit the CLINIC, HOLD [E] to grab supplies, then return to the TEMPLE and HOLD [E].";
+                case "VS02": return "ANIMAL RESCUE: Find the BARN and HOLD [E] on each of the 3 gates to free the livestock.";
+                case "VS05": return "SIGNAL FIRE: Climb to the RADIO TOWER on the hill, then HOLD [E] to send the SOS signal.";
+                default: return null;
             }
-            StartCoroutine(BriefingRoutine(mission.missionName, controls));
         }
 
-        private IEnumerator BriefingRoutine(string title, string body)
+        // ── Briefing queue ──────────────────────────────────────────────
+        private readonly Queue<MissionData> _briefingQueue = new Queue<MissionData>();
+        private Coroutine _briefingPump;
+
+        private void EnqueueBriefing(MissionData mission)
         {
-            // Reuse warning banner with longer text + duration
-            if (warningCoroutine != null) StopCoroutine(warningCoroutine);
-            warningCoroutine = StartCoroutine(WarningBannerRoutine($"{title}\n<size=70%>{body}", COL_SCORE));
-            yield return null;
+            _briefingQueue.Enqueue(mission);
+            if (_briefingPump == null)
+                _briefingPump = StartCoroutine(BriefingPump());
+        }
+
+        private IEnumerator BriefingPump()
+        {
+            while (_briefingQueue.Count > 0)
+            {
+                var m = _briefingQueue.Dequeue();
+                string hint = GetMissionHint(m.missionId) ?? m.description;
+                string text = $"NEW MISSION: {m.missionName}\n<size=65%>{hint}";
+
+                // Stop any currently-running banner so this one slides in cleanly
+                if (warningCoroutine != null) StopCoroutine(warningCoroutine);
+                warningCoroutine = StartCoroutine(WarningBannerRoutine(text, COL_SCORE));
+
+                // Wait for this banner to finish (fade-in + hold + fade-out) plus a short gap
+                yield return new WaitForSeconds(WARNING_FADE_DURATION * 2f + WARNING_BANNER_DURATION + 0.25f);
+            }
+            _briefingPump = null;
         }
 
         private void OnMissionCompleted(MissionData mission)

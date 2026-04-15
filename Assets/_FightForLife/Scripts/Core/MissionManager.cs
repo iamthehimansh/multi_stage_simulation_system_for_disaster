@@ -37,6 +37,11 @@ namespace FightForLife.Core
             Instance = this;
         }
 
+        private void OnEnable()
+        {
+            if (Instance == null) Instance = this;
+        }
+
         private void Start()
         {
             floodManager = FindAnyObjectByType<FloodManager>();

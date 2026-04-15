@@ -112,6 +112,25 @@ namespace FightForLife.Player
             }
 
             UpdateCrouch();
+            ClampAboveTerrain();
+        }
+
+        /// <summary>
+        /// Prevents the player from falling below the terrain surface.
+        /// </summary>
+        private void ClampAboveTerrain()
+        {
+            var terrain = Terrain.activeTerrain;
+            if (terrain == null) return;
+
+            float terrainY = terrain.SampleHeight(transform.position) + terrain.transform.position.y;
+            if (transform.position.y < terrainY)
+            {
+                cc.enabled = false;
+                transform.position = new Vector3(transform.position.x, terrainY, transform.position.z);
+                cc.enabled = true;
+                verticalVelocity = 0f;
+            }
         }
 
         private void DetectWater()

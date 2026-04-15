@@ -45,3 +45,10 @@ Thumbs.db
 
 # Crashlytics
 crashlytics-build.properties
+
+# Files exceeding GitHub 100MB limit (added during initial push)
+Assets/ASTROFISH_GAMES/MEDIEVAL_SERIES/MEDIEVAL_VILLAGE/MEDIEVAL_VILLLAGE_HD_DEMO/Mats/Medieval_PlatformsFoundationsPorch_Albedo_8k.tif
+Assets/ASTROFISH_GAMES/MEDIEVAL_SERIES/MEDIEVAL_VILLAGE/MEDIEVAL_VILLLAGE_HD_DEMO/Mats/Medieval_PlatformsFoundationsPorch_NRM_8k.tif
+Assets/Erbeilo3D/3D Model/Building_Shell/Texture/Stone Wall 1_Displacement.exr
+Assets/Erbeilo3D/otherTexture/moonless_golf_8k.hdr
+Assets/_FightForLife/Models/NPCs/NPC_Character_03.fbx

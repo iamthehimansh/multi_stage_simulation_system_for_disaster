@@ -43,6 +43,21 @@ namespace FightForLife.Core
             DontDestroyOnLoad(gameObject);
         }
 
+        private void OnEnable()
+        {
+            if (Instance == null) Instance = this;
+        }
+
+        private void Start()
+        {
+            // Auto-initialize when playing directly from a gameplay scene
+            // (not launched through MainMenu -> StartGame -> OnSceneLoaded)
+            if (!isInitialized && currentState == GameState.Playing)
+            {
+                InitializeGame();
+            }
+        }
+
         private void Update()
         {
             if (currentState == GameState.Playing)

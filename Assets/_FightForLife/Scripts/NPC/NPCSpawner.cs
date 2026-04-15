@@ -41,6 +41,15 @@ namespace FightForLife.NPC
             Instance = this;
         }
 
+        private void OnEnable()
+        {
+            // Self-heal: in some scene-reload paths the static backing field
+            // ends up null even though this spawner is alive and active.
+            if (Instance == null) Instance = this;
+        }
+
+        public static void SetInstance(NPCSpawner sp) { Instance = sp; }
+
         private void Start()
         {
             SpawnAllNPCs();
@@ -137,13 +146,10 @@ namespace FightForLife.NPC
             switch (newState)
             {
                 case NPCState.Rescued:
-                    rescuedCount++;
-                    OnNPCRescued?.Invoke(npc);
-
-                    if (ScoreManager.Instance != null)
-                    {
-                        ScoreManager.Instance.RescueCivilian();
-                    }
+                    // Skip if already counted via direct interact (Calm/Rescue/Free)
+                    if (npc.IsRescueCounted) break;
+                    npc.MarkRescueCounted();
+                    NotifyRescue(npc);
                     break;
 
                 case NPCState.Dead:
@@ -235,6 +241,26 @@ namespace FightForLife.NPC
         public int GetAliveCount()
         {
             return allNPCs.Count - deadCount;
+        }
+
+        /// <summary>
+        /// Called by CivilianAI the first time the player calms/rescues/frees an NPC.
+        /// Counts the rescue immediately, ticks score and mission objectives,
+        /// without forcing the NPC into the frozen Rescued state (so they keep following).
+        /// </summary>
+        public void NotifyRescue(CivilianAI npc)
+        {
+            rescuedCount++;
+            OnNPCRescued?.Invoke(npc);
+
+            if (ScoreManager.Instance != null)
+                ScoreManager.Instance.RescueCivilian();
+
+            if (MissionManager.Instance != null)
+            {
+                MissionManager.Instance.UpdateObjective("VM02", "rescue_families");
+                MissionManager.Instance.UpdateObjective("VM03", "guide_across");
+            }
         }
 
         public int GetDeadCount()

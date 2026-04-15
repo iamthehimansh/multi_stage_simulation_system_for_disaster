@@ -28,6 +28,11 @@ namespace FightForLife.Core
             Instance = this;
         }
 
+        private void OnEnable()
+        {
+            if (Instance == null) Instance = this;
+        }
+
         public void AddScore(int points)
         {
             currentScore += points;
